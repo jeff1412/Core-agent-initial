@@ -1,0 +1,10 @@
+{
+  "name": "core-agent",
+  "version": "1.0.0",
+  "description": "ASC Creative — Core Agent workspace root",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix asc-agent-service",
+    "test": "npm run test --prefix asc-agent-service"
+  }
+}

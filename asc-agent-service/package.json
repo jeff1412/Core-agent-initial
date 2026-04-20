@@ -1,0 +1,40 @@
+{
+  "name": "asc-agent-service",
+  "version": "1.0.0",
+  "description": "ASC Creative Agent Orchestration Service — connects Mattermost task briefs to Claude API code generation and GitHub Draft PRs.",
+  "main": "server.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx server.ts",
+    "server": "tsx server.ts",
+    "dev": "tsx watch server.ts",
+    "test": "node tests/briefValidator.test.js && node tests/contextAssembler.test.js"
+  },
+  "keywords": [
+    "asc-creative",
+    "agent-service",
+    "mattermost",
+    "github",
+    "claude"
+  ],
+  "author": "ASC Creative",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "@octokit/rest": "^22.0.1",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "vite-express": "^0.22.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.8"
+  }
+}

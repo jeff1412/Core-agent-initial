@@ -1,0 +1,7 @@
+/* App-level layout overrides */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-base);
+}
