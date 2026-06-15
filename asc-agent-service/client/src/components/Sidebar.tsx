@@ -9,33 +9,14 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/',            icon: '⬡', label: 'Overview' },
+  { to: '/chat',        icon: '◈', label: 'Talk to Agent' },
   { to: '/health',      icon: '◎', label: 'Health Status' },
-  { to: '/activity',   icon: '◈', label: 'Activity Feed' },
   { to: '/intake',      icon: '✦', label: 'Task Intake' },
-  { to: '/pull-requests', icon: '⎇', label: 'Pull Requests' },
-  { to: '/escalations', icon: '⚑', label: 'Escalations' },
-  { to: '/products',    icon: '◻', label: 'Products' },
+  { to: '/pull-requests', icon: '⎇', label: 'Pushes & PRs' },
   { to: '/repositories', icon: '⚙', label: 'Repositories' },
 ];
 
 export default function Sidebar() {
-  const [escalationCount, setEscalationCount] = useState(0);
-
-  useEffect(() => {
-    const fetchCount = async () => {
-      try {
-        const res = await fetch('/api/escalations');
-        const data = await res.json();
-        setEscalationCount(data.length);
-      } catch (e) {
-        console.error('Failed to fetch escalation count:', e);
-      }
-    };
-    fetchCount();
-    const interval = setInterval(fetchCount, 30000); // Poll every 30s
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <aside className="sidebar">
@@ -60,9 +41,6 @@ export default function Sidebar() {
           >
             <span className="nav-icon">{item.icon}</span>
             <span className="nav-label">{item.label}</span>
-            {item.label === 'Escalations' && escalationCount > 0 && (
-              <span className="nav-badge">{escalationCount}</span>
-            )}
           </NavLink>
         ))}
       </nav>

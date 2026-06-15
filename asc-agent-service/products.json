@@ -2,8 +2,9 @@
   {
     "id": "meetinggenius",
     "name": "MeetingGenius",
-    "repo": "meeting-genius",
-    "path": "../../meeting-genius",
+    "owner": "asccreative",
+    "repo": "meetinggenius2",
+    "path": "../../meetinggenius2",
     "channel": "#mg-dev",
     "status": "active",
     "onboarded": "2026-04-17"
@@ -11,19 +12,11 @@
   {
     "id": "janus",
     "name": "Janus",
-    "repo": "Janus",
-    "path": "../../Janus/Janus",
+    "owner": "asccreative",
+    "repo": "janus",
+    "path": "../../janus",
     "channel": "#janus-dev",
     "status": "active",
     "onboarded": "2026-04-17"
-  },
-  {
-    "id": "core-agent-initial",
-    "name": "Core Agent Initial",
-    "owner": "jeff1412",
-    "repo": "Core-agent-initial",
-    "channel": "#alerts",
-    "status": "active",
-    "onboarded": "2026-04-20"
   }
 ]

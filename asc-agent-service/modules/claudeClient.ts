@@ -1,47 +1,81 @@
 'use strict';
 
 /**
- * modules/claudeClient.ts — Anthropic Claude API Client
+ * modules/claudeClient.ts — Gemini API Client for Code Generation
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import 'dotenv/config';
+
+/**
+ * Extracts raw code from markdown code fences if present.
+ */
+function extractCode(text: string): string {
+  const match = text.match(/```[a-zA-Z0-9+#]*\n([\s\S]*?)```/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return text;
+}
 
 /**
  * generateCode(systemPrompt, userPrompt)
  */
 export async function generateCode(systemPrompt: string, userPrompt: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not set in .env');
+    throw new Error('GEMINI_API_KEY is not set in .env');
   }
 
-  const anthropic = new Anthropic({
-    apiKey: apiKey,
-  });
+  const model = 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  console.log(`\n[Claude Client] Initiating code generation...`);
+  console.log(`\n[Gemini Client] Initiating code generation using ${model}...`);
 
   try {
-    const msg = await anthropic.messages.create({
-      model: 'claude-3-7-sonnet-20250219',
-      max_tokens: 4096,
-      temperature: 0,
-      system: systemPrompt,
-      messages: [
-        { role: 'user', content: userPrompt }
-      ],
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        system_instruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: userPrompt }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.1, // Low temperature for highly precise code generation
+          maxOutputTokens: 8192
+        }
+      })
     });
 
-    const responseText = msg.content
-      .filter(block => block.type === 'text')
-      .map(block => (block as any).text)
-      .join('\n');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API returned status ${response.status}: ${errorText}`);
+    }
 
-    console.log(`\n[Claude Client] ✅ Generation complete.`);
-    return responseText;
+    const data = await response.json() as any;
+
+    if (data.error) {
+      throw new Error(data.error.message || 'Unknown Gemini API error');
+    }
+
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) {
+      throw new Error('Empty response from Gemini API');
+    }
+
+    const cleanedCode = extractCode(rawText);
+    console.log(`\n[Gemini Client] ✅ Code generation and extraction complete.`);
+    return cleanedCode;
 
   } catch (error: any) {
-    console.error(`\n[Claude Client] ❌ API Error:`, error.message);
+    console.error(`\n[Gemini Client] ❌ API Error:`, error.message);
     throw error;
   }
 }

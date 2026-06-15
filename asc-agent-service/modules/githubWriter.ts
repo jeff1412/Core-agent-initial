@@ -16,9 +16,11 @@ export interface PRCreateOptions {
 }
 
 export interface PullRequestSummary {
-  id: number;
+  id: number | string;
+  type: string;
   product: string;
   summary: string;
+  actor: string;
   branch: string;
   status: string;
   date: string;
@@ -131,6 +133,7 @@ ${taskBrief['Acceptance Criteria'] || 'Review against criteria.'}
 
 /**
  * getPullRequests(productRepo, productOwner)
+ * Fetches both commits (representing Pushes) and Pull Requests to audit who is pushing/pulling.
  */
 export async function getPullRequests(productRepo: string, productOwner?: string): Promise<PullRequestSummary[]> {
   const githubToken = process.env.GITHUB_TOKEN;
@@ -139,7 +142,9 @@ export async function getPullRequests(productRepo: string, productOwner?: string
   if (!githubToken || !githubOrg) return [];
 
   const octokit = new Octokit({ auth: githubToken });
+  const activityList: PullRequestSummary[] = [];
 
+  // 1. Fetch Pull Requests
   try {
     const { data: pullRequests } = await octokit.rest.pulls.list({
       owner: githubOrg,
@@ -147,22 +152,52 @@ export async function getPullRequests(productRepo: string, productOwner?: string
       state: 'all',
       sort: 'updated',
       direction: 'desc',
-      per_page: 50
+      per_page: 20
     });
 
-    return pullRequests
-      .filter(pr => pr.head.ref.startsWith('agent/'))
-      .map(pr => ({
-        id: pr.number,
+    pullRequests.forEach(pr => {
+      activityList.push({
+        id: `PR #${pr.number}`,
+        type: 'Pull Request',
         product: productRepo,
-        summary: pr.title.replace('[Agent] ', ''),
+        summary: pr.title,
+        actor: pr.user?.login || 'unknown',
         branch: pr.head.ref,
         status: pr.merged_at ? 'Merged' : pr.state.charAt(0).toUpperCase() + pr.state.slice(1),
         date: pr.created_at ? pr.created_at.split('T')[0] : 'N/A',
         url: pr.html_url
-      }));
+      });
+    });
   } catch (e: any) {
     console.warn(`[GitHub Writer] Failed to fetch PRs for ${productRepo}: ${e.message}`);
-    return [];
   }
+
+  // 2. Fetch Commits (Pushes) on main
+  try {
+    const { data: commits } = await octokit.rest.repos.listCommits({
+      owner: githubOrg,
+      repo: productRepo,
+      sha: 'main',
+      per_page: 20
+    });
+
+    commits.forEach(c => {
+      activityList.push({
+        id: c.sha.substring(0, 7),
+        type: 'Push',
+        product: productRepo,
+        summary: c.commit.message.split('\n')[0],
+        actor: c.author?.login || c.commit.author?.name || 'unknown',
+        branch: 'main',
+        status: 'Pushed',
+        date: c.commit.author?.date ? c.commit.author.date.split('T')[0] : 'N/A',
+        url: c.html_url
+      });
+    });
+  } catch (e: any) {
+    console.warn(`[GitHub Writer] Failed to fetch commits for ${productRepo}: ${e.message}`);
+  }
+
+  return activityList;
 }
+

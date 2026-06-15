@@ -103,7 +103,7 @@ async function startServer() {
     res.json(getEscalations());
   });
   app.delete('/api/escalations/:id', (req: Request, res: Response) => {
-    clearEscalation(req.params.id);
+    clearEscalation(req.params.id as string);
     res.status(204).end();
   });
 
@@ -111,9 +111,11 @@ async function startServer() {
   app.post('/api/intake', async (req: Request, res: Response) => {
     res.status(200).json({ status: 'accepted', message: 'Task submitted to engine' });
     
-    const { product, description, type, priority, referenceFiles } = req.body;
+    const { product, description, type, taskType, priority, acceptanceCriteria, doNotTouch, referenceFiles } = req.body;
+    const finalType = type || taskType || 'Feature';
+    
     const simulatedPayload: PipelinePayload = {
-      text: `Product: ${product}\nTask Type: ${type}\nDescription: ${description}\nPriority: ${priority}\nReference Files: ${referenceFiles}`,
+      text: `Product: ${product}\nTask Type: ${finalType}\nDescription: ${description}\nAcceptance Criteria: ${acceptanceCriteria || 'N/A'}\nPriority: ${priority}\nDo Not Touch: ${doNotTouch || 'None'}\nReference Files: ${referenceFiles || 'None'}`,
       post_id: 'web-form-' + Date.now().toString(36),
       channel_id: 'dashboard-ui'
     };

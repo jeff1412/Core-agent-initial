@@ -9,13 +9,11 @@ interface PageTitle {
 
 /* Maps route paths to human-readable page titles */
 const PAGE_TITLES: Record<string, PageTitle> = {
-  '/':              { title: 'Overview',        subtitle: 'Platform at a glance' },
+  '/chat':          { title: 'Talk to Agent',   subtitle: 'Direct interface with the ASC Core Agent' },
   '/health':        { title: 'Health Status',   subtitle: 'Live service connection status' },
-  '/activity':      { title: 'Activity Feed',   subtitle: 'Real-time agent pipeline log' },
   '/intake':        { title: 'Task Intake',      subtitle: 'Submit a new task brief to the agent' },
   '/pull-requests': { title: 'Pull Requests',   subtitle: 'All Draft PRs created by the agent' },
-  '/escalations':   { title: 'Escalations',     subtitle: 'Stop conditions requiring human review' },
-  '/products':      { title: 'Product Registry',subtitle: 'All products onboarded to the platform' },
+  '/repositories':  { title: 'Repository Management', subtitle: 'Manage onboarded GitHub repositories' },
 };
 
 export default function TopBar() {

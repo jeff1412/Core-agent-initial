@@ -40,6 +40,8 @@
   --status-blue-bg: rgba(59, 130, 246, 0.1);
   --status-grey:    #64748b;
   --status-grey-bg: rgba(100, 116, 139, 0.1);
+  --status-purple:    #a855f7;
+  --status-purple-bg: rgba(168, 85, 247, 0.1);
 
   /* Precise Shadows */
   --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.5);
@@ -228,6 +230,7 @@ code, pre {
 .badge-red    { background: var(--status-red-bg);    color: var(--status-red);    }
 .badge-blue   { background: var(--status-blue-bg);   color: var(--status-blue);   }
 .badge-grey   { background: var(--status-grey-bg);   color: var(--status-grey);   }
+.badge-purple { background: var(--status-purple-bg); color: var(--status-purple); }
 
 /* ── Status Dot ── */
 .status-dot {
