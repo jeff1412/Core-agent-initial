@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import HealthStatus from './pages/HealthStatus';
+import Heartbeat from './pages/Heartbeat';
 import TaskIntake from './pages/TaskIntake';
 import PullRequests from './pages/PullRequests';
 import Repositories from './pages/Repositories';
@@ -20,6 +21,7 @@ export default function App() {
               <Route path="/"              element={<Navigate to="/chat" replace />} />
               <Route path="/chat"          element={<AgentChat />} />
               <Route path="/health"        element={<HealthStatus />} />
+              <Route path="/heartbeat"     element={<Heartbeat />} />
               <Route path="/intake"        element={<TaskIntake />} />
               <Route path="/pull-requests" element={<PullRequests />} />
               <Route path="/repositories"  element={<Repositories />} />

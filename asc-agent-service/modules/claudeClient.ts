@@ -132,3 +132,48 @@ export async function chatWithGemini(
 
   return data.candidates?.[0]?.content?.parts?.[0]?.text || 'I encountered an issue processing your request.';
 }
+
+/**
+ * generateText(systemPrompt, userPrompt, temperature?)
+ * General-purpose Gemini text generation (reports, summaries).
+ */
+export async function generateText(
+  systemPrompt: string,
+  userPrompt: string,
+  temperature = 0.5
+): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set in .env');
+  }
+
+  const model = 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { temperature, maxOutputTokens: 2048 }
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API returned status ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json() as any;
+  if (data.error) {
+    throw new Error(data.error.message || 'Unknown Gemini API error');
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error('Empty response from Gemini API');
+  }
+
+  return text;
+}

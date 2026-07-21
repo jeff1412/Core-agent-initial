@@ -5,3 +5,4 @@ dist/
 build/
 *.log
 .gemini/
+asc-agent-service/heartbeat-history.json

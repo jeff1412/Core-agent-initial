@@ -11,6 +11,7 @@ interface PageTitle {
 const PAGE_TITLES: Record<string, PageTitle> = {
   '/chat':          { title: 'Talk to Agent',   subtitle: 'Direct interface with the ASC Core Agent' },
   '/health':        { title: 'Health Status',   subtitle: 'Live service connection status' },
+  '/heartbeat':     { title: 'Heartbeat',         subtitle: 'Repo health reports for onboarded products' },
   '/intake':        { title: 'Task Intake',      subtitle: 'Submit a new task brief to the agent' },
   '/pull-requests': { title: 'Pull Requests',   subtitle: 'All Draft PRs created by the agent' },
   '/repositories':  { title: 'Repository Management', subtitle: 'Manage onboarded GitHub repositories' },

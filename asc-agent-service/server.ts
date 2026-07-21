@@ -22,6 +22,9 @@ import { checkHealth } from './modules/healthChecker';
 import { getEscalations, clearEscalation } from './modules/escalationManager';
 import { runPipeline, PipelinePayload } from './modules/agentEngine';
 import { chatWithGemini, ChatMessage } from './modules/claudeClient';
+import { runHeartbeat, isHeartbeatRunning } from './modules/heartbeatRunner';
+import { getLatestReport, getReportHistory } from './modules/heartbeatStore';
+import cron from 'node-cron';
 
 async function startServer() {
   const app = express();
@@ -125,6 +128,30 @@ async function startServer() {
     }
   });
 
+  // Heartbeat API (repo health reports)
+  app.get('/api/heartbeat/latest', (req: Request, res: Response) => {
+    const latest = getLatestReport();
+    res.json(latest || { empty: true });
+  });
+
+  app.get('/api/heartbeat/history', (req: Request, res: Response) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 10, 30);
+    res.json(getReportHistory(limit));
+  });
+
+  app.post('/api/heartbeat/run', async (req: Request, res: Response) => {
+    if (isHeartbeatRunning()) {
+      return res.status(409).json({ error: 'A heartbeat report is already in progress.' });
+    }
+    try {
+      const report = await runHeartbeat('manual');
+      res.json(report);
+    } catch (e: any) {
+      console.error('[Heartbeat API] Error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Task Intake API (Web Form)
   app.post('/api/intake', async (req: Request, res: Response) => {
     res.status(200).json({ status: 'accepted', message: 'Task submitted to engine' });
@@ -183,6 +210,19 @@ async function startServer() {
 
   app.listen(PORT, () => {
     console.log(`\n✅ WEBSITE IS LIVE AT: http://localhost:${PORT}\n`);
+
+    const cronExpr = process.env.HEARTBEAT_REPORT_CRON || '0 9 * * 1';
+    if (cron.validate(cronExpr)) {
+      cron.schedule(cronExpr, () => {
+        if (isHeartbeatRunning()) return;
+        runHeartbeat('scheduled').catch(err =>
+          console.error('[Heartbeat Cron] Failed:', err.message)
+        );
+      });
+      console.log(`[Heartbeat] Scheduled reports: ${cronExpr}`);
+    } else {
+      console.warn(`[Heartbeat] Invalid HEARTBEAT_REPORT_CRON: ${cronExpr}`);
+    }
   });
 }
 

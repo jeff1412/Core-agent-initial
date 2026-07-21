@@ -11,6 +11,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/chat',        icon: '◈', label: 'Talk to Agent' },
   { to: '/health',      icon: '◎', label: 'Health Status' },
+  { to: '/heartbeat',   icon: '♥', label: 'Heartbeat' },
   { to: '/intake',      icon: '✦', label: 'Task Intake' },
   { to: '/pull-requests', icon: '⎇', label: 'Pushes & PRs' },
   { to: '/repositories', icon: '⚙', label: 'Repositories' },
