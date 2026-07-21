@@ -23,7 +23,7 @@ import { getEscalations, clearEscalation } from './modules/escalationManager';
 import { runPipeline, PipelinePayload } from './modules/agentEngine';
 import { chatWithGemini, ChatMessage } from './modules/claudeClient';
 import { runHeartbeat, isHeartbeatRunning } from './modules/heartbeatRunner';
-import { getLatestReport, getReportHistory } from './modules/heartbeatStore';
+import { getLatestReport, getReportHistory, getReportById } from './modules/heartbeatStore';
 import cron from 'node-cron';
 
 async function startServer() {
@@ -135,8 +135,27 @@ async function startServer() {
   });
 
   app.get('/api/heartbeat/history', (req: Request, res: Response) => {
-    const limit = Math.min(parseInt(req.query.limit as string) || 10, 30);
-    res.json(getReportHistory(limit));
+    const limit = Math.min(parseInt(req.query.limit as string) || 30, 30);
+    const history = getReportHistory(limit).map(r => ({
+      id: r.id,
+      generatedAt: r.generatedAt,
+      trigger: r.trigger,
+      summary: {
+        green: r.products.filter(p => p.status === 'green').length,
+        yellow: r.products.filter(p => p.status === 'yellow').length,
+        red: r.products.filter(p => p.status === 'red').length,
+        products: r.products.map(p => ({ name: p.productName, status: p.status }))
+      }
+    }));
+    res.json(history);
+  });
+
+  app.get('/api/heartbeat/:id', (req: Request, res: Response) => {
+    const report = getReportById(req.params.id as string);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    res.json(report);
   });
 
   app.post('/api/heartbeat/run', async (req: Request, res: Response) => {

@@ -8,11 +8,6 @@
   margin-top: var(--space-1);
 }
 
-.heartbeat-meta {
-  font-size: 12px;
-  margin-top: var(--space-2);
-}
-
 .heartbeat-error {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
@@ -23,13 +18,159 @@
   font-size: 13px;
 }
 
+.heartbeat-loading {
+  margin-bottom: var(--space-5);
+  padding: var(--space-5);
+}
+
+.heartbeat-loading-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-3);
+}
+
+.heartbeat-progress-track {
+  height: 8px;
+  background: var(--bg-base);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.heartbeat-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary, #22c55e), #4ade80);
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+
+.heartbeat-loading-pct {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.heartbeat-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.heartbeat-history-panel {
+  position: sticky;
+  top: var(--space-4);
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.heartbeat-history-title {
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.heartbeat-history-empty {
+  font-size: 12px;
+}
+
+.heartbeat-history-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.heartbeat-history-item {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.heartbeat-history-item:hover {
+  border-color: var(--accent-primary, #22c55e);
+}
+
+.heartbeat-history-item.active {
+  border-color: var(--accent-primary, #22c55e);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.heartbeat-history-datetime {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.heartbeat-history-stats {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.heartbeat-history-stats .dot {
+  font-size: 10px;
+  font-weight: bold;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.heartbeat-history-stats .dot.green { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.heartbeat-history-stats .dot.yellow { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+.heartbeat-history-stats .dot.red { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+
+.badge-sm {
+  font-size: 10px;
+  align-self: flex-start;
+}
+
+.heartbeat-main {
+  min-width: 0;
+}
+
 .heartbeat-empty {
   padding: var(--space-6);
   text-align: center;
 }
 
-.heartbeat-empty p {
-  margin-bottom: var(--space-2);
+.heartbeat-report-meta {
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.heartbeat-report-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.heartbeat-report-meta-row .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: var(--weight-bold);
+}
+
+.heartbeat-report-meta-row .value {
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
 }
 
 .heartbeat-products {
@@ -65,21 +206,69 @@
   gap: var(--space-4);
 }
 
-.heartbeat-issues {
-  margin-top: var(--space-4);
-  padding: var(--space-3);
-  background: rgba(234, 179, 8, 0.08);
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(234, 179, 8, 0.2);
+.heartbeat-commit-msg {
+  margin-top: var(--space-3);
   font-size: 12px;
   color: var(--text-secondary);
-  list-style: disc;
-  padding-left: var(--space-5);
+  font-style: italic;
 }
 
-.heartbeat-issues li {
-  margin-bottom: var(--space-1);
+.heartbeat-pr-list {
+  margin-top: var(--space-4);
+  font-size: 12px;
 }
+
+.heartbeat-pr-list .label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.heartbeat-pr-item {
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  line-height: 1.4;
+}
+
+.heartbeat-block {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+
+.heartbeat-block-title {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: var(--weight-bold);
+  margin-bottom: var(--space-2);
+}
+
+.heartbeat-block ul {
+  list-style: disc;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.heartbeat-block-issues {
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.heartbeat-block-issues .heartbeat-block-title { color: #ef4444; }
+
+.heartbeat-block-recs {
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+.heartbeat-block-recs .heartbeat-block-title { color: #22c55e; }
 
 .heartbeat-report {
   border: 1px solid var(--border-subtle);
@@ -99,11 +288,57 @@
   font-weight: var(--weight-bold);
 }
 
-.heartbeat-report-body p {
-  margin-bottom: var(--space-3);
-  line-height: 1.6;
-  color: var(--text-secondary);
+.heartbeat-md-h2 {
+  font-size: 16px;
+  font-weight: var(--weight-bold);
+  margin: var(--space-5) 0 var(--space-3);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-2);
+}
+
+.heartbeat-md-h2:first-child { margin-top: 0; }
+
+.heartbeat-md-h3 {
   font-size: 14px;
+  font-weight: var(--weight-bold);
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--text-primary);
+}
+
+.heartbeat-md-p,
+.heartbeat-md-meta,
+.heartbeat-md-bold,
+.heartbeat-md-numbered {
+  margin-bottom: var(--space-2);
+  line-height: 1.65;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.heartbeat-md-bold,
+.heartbeat-md-meta {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.heartbeat-md-list {
+  margin: var(--space-2) 0 var(--space-3);
+  padding-left: var(--space-5);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 960px) {
+  .heartbeat-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .heartbeat-history-panel {
+    position: static;
+    max-height: 240px;
+  }
 }
 
 @media (max-width: 768px) {

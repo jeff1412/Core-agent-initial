@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import './Heartbeat.css';
 
 interface ProductHeartbeat {
@@ -24,6 +24,9 @@ interface ProductHeartbeat {
     runAt: string | null;
   };
   issues: string[];
+  recommendations: string[];
+  openPrs: Array<{ number: number; title: string; author: string; daysOpen: number }>;
+  commitsLast7Days: number;
 }
 
 interface HeartbeatReport {
@@ -35,20 +38,33 @@ interface HeartbeatReport {
   aiError: string | null;
 }
 
+interface HistoryItem {
+  id: string;
+  generatedAt: string;
+  trigger: 'manual' | 'scheduled';
+  summary: {
+    green: number;
+    yellow: number;
+    red: number;
+    products: Array<{ name: string; status: string }>;
+  };
+}
+
 function statusLabel(status: string): string {
   if (status === 'green') return 'Healthy';
   if (status === 'yellow') return 'Attention';
   return 'Critical';
 }
 
-function formatRelativeTime(iso: string): string {
-  const date = new Date(iso);
-  return date.toLocaleString('en-CA', {
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-CA', {
+    weekday: 'short',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hour12: true
   });
 }
@@ -59,43 +75,265 @@ function commitAgeText(daysAgo: number): string {
   return `${daysAgo} days ago`;
 }
 
+function renderReportMarkdown(text: string) {
+  const lines = text.split('\n');
+  const elements: ReactNode[] = [];
+  let listItems: string[] = [];
+  let listKey = 0;
+
+  const flushList = () => {
+    if (listItems.length === 0) return;
+    elements.push(
+      <ul key={`list-${listKey++}`} className="heartbeat-md-list">
+        {listItems.map((item, i) => <li key={i}>{item}</li>)}
+      </ul>
+    );
+    listItems = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.startsWith('## ')) {
+      flushList();
+      elements.push(<h2 key={i} className="heartbeat-md-h2">{line.slice(3)}</h2>);
+    } else if (line.startsWith('### ')) {
+      flushList();
+      elements.push(<h3 key={i} className="heartbeat-md-h3">{line.slice(4)}</h3>);
+    } else if (/^\*\*.+\*\*$/.test(line.trim())) {
+      flushList();
+      elements.push(<p key={i} className="heartbeat-md-bold">{line.replace(/\*\*/g, '')}</p>);
+    } else if (line.startsWith('**') && line.includes(':**')) {
+      flushList();
+      elements.push(<p key={i} className="heartbeat-md-meta">{line.replace(/\*\*/g, '')}</p>);
+    } else if (/^\d+\.\s/.test(line.trim())) {
+      flushList();
+      elements.push(<p key={i} className="heartbeat-md-numbered">{line}</p>);
+    } else if (line.trim().startsWith('- ')) {
+      listItems.push(line.trim().slice(2));
+    } else if (line.trim() === '') {
+      flushList();
+    } else {
+      flushList();
+      elements.push(<p key={i} className="heartbeat-md-p">{line}</p>);
+    }
+  }
+  flushList();
+  return elements;
+}
+
+function LoadingBar({ progress, label }: { progress: number; label: string }) {
+  return (
+    <div className="card heartbeat-loading slide-in">
+      <p className="heartbeat-loading-label">{label}</p>
+      <div className="heartbeat-progress-track">
+        <div className="heartbeat-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+      <p className="heartbeat-loading-pct">{Math.round(progress)}%</p>
+    </div>
+  );
+}
+
+function ReportDetail({ report }: { report: HeartbeatReport }) {
+  return (
+    <>
+      <div className="heartbeat-report-meta card slide-in">
+        <div className="heartbeat-report-meta-row">
+          <span className="label">Report Date & Time</span>
+          <span className="value">{formatDateTime(report.generatedAt)}</span>
+        </div>
+        <div className="heartbeat-report-meta-row">
+          <span className="label">Trigger</span>
+          <span className={`badge ${report.trigger === 'manual' ? 'badge-blue' : 'badge-purple'}`}>
+            {report.trigger === 'manual' ? 'Manual Run' : 'Scheduled Run'}
+          </span>
+        </div>
+        <div className="heartbeat-report-meta-row">
+          <span className="label">Report ID</span>
+          <span className="value mono">{report.id}</span>
+        </div>
+      </div>
+
+      <div className="grid-2 heartbeat-products">
+        {report.products.map((p, i) => (
+          <div key={p.productId} className="card heartbeat-product-card slide-in" style={{ animationDelay: `${i * 60}ms` }}>
+            <div className="heartbeat-product-header">
+              <div>
+                <h3>{p.productName}</h3>
+                <p className="mono text-muted heartbeat-scope">{p.owner}/{p.repo}</p>
+              </div>
+              <span className={`badge badge-${p.status === 'green' ? 'green' : p.status === 'yellow' ? 'yellow' : 'red'}`}>
+                {statusLabel(p.status)}
+              </span>
+            </div>
+
+            <div className="heartbeat-metrics">
+              <div className="metric">
+                <span className="label">Last Commit</span>
+                <span className="value">
+                  {p.lastCommit ? `${commitAgeText(p.lastCommit.daysAgo)} (${p.lastCommit.sha})` : '—'}
+                </span>
+              </div>
+              <div className="metric">
+                <span className="label">7-Day Commits</span>
+                <span className="value">{p.commitsLast7Days}</span>
+              </div>
+              <div className="metric">
+                <span className="label">Open PRs</span>
+                <span className="value">{p.openPrCount}{p.stalePrCount > 0 ? ` (${p.stalePrCount} stale)` : ''}</span>
+              </div>
+              <div className="metric">
+                <span className="label">CI Status</span>
+                <span className="value">
+                  {!p.ci.available ? 'Not configured' : p.ci.conclusion === 'success' ? 'Passing' : p.ci.conclusion || 'Pending'}
+                </span>
+              </div>
+            </div>
+
+            {p.lastCommit && (
+              <p className="heartbeat-commit-msg">"{p.lastCommit.message}" — @{p.lastCommit.author}</p>
+            )}
+
+            {p.openPrs.length > 0 && (
+              <div className="heartbeat-pr-list">
+                <span className="label">Open PRs</span>
+                {p.openPrs.map(pr => (
+                  <div key={pr.number} className="heartbeat-pr-item">
+                    <span className="mono">#{pr.number}</span> {pr.title}
+                    <span className="text-muted"> — @{pr.author}, {pr.daysOpen}d</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {p.issues.length > 0 && (
+              <div className="heartbeat-block heartbeat-block-issues">
+                <span className="heartbeat-block-title">Issues</span>
+                <ul>{p.issues.map((issue, idx) => <li key={idx}>{issue}</li>)}</ul>
+              </div>
+            )}
+
+            {p.recommendations.length > 0 && (
+              <div className="heartbeat-block heartbeat-block-recs">
+                <span className="heartbeat-block-title">Recommendations</span>
+                <ul>{p.recommendations.map((rec, idx) => <li key={idx}>{rec}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {report.aiReport && (
+        <div className="card heartbeat-report slide-in">
+          <div className="heartbeat-report-header">
+            <h3>Detailed AI Report</h3>
+            {report.aiError && (
+              <span className="badge badge-yellow">Fallback template (AI unavailable)</span>
+            )}
+          </div>
+          <div className="heartbeat-report-body">{renderReportMarkdown(report.aiReport)}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Heartbeat() {
   const [report, setReport] = useState<HeartbeatReport | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchLatest = useCallback(() => {
-    return fetch('/api/heartbeat/latest')
+  const fetchHistory = useCallback(() => {
+    return fetch('/api/heartbeat/history')
       .then(r => r.json())
-      .then(data => {
-        if (data.empty) {
-          setReport(null);
-        } else {
-          setReport(data);
-        }
-      })
-      .catch(() => setError('Failed to load heartbeat data'));
+      .then(data => setHistory(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+
+  const loadReport = useCallback(async (id: string) => {
+    const res = await fetch(`/api/heartbeat/${id}`);
+    if (!res.ok) throw new Error('Report not found');
+    const data = await res.json();
+    setReport(data);
+    setSelectedId(id);
   }, []);
 
   useEffect(() => {
-    fetchLatest().finally(() => setLoading(false));
-  }, [fetchLatest]);
+    Promise.all([
+      fetch('/api/heartbeat/latest').then(r => r.json()),
+      fetchHistory()
+    ]).then(([latest]) => {
+      if (latest && !latest.empty) {
+        setReport(latest);
+        setSelectedId(latest.id);
+      }
+    }).catch(() => setError('Failed to load heartbeat data'))
+      .finally(() => setLoading(false));
+  }, [fetchHistory]);
+
+  useEffect(() => {
+    if (!running) {
+      if (progressTimer.current) clearInterval(progressTimer.current);
+      return;
+    }
+
+    setProgress(0);
+    setProgressLabel('Connecting to GitHub...');
+
+    const stages = [
+      { at: 15, label: 'Checking repository access...' },
+      { at: 35, label: 'Analyzing commits and pull requests...' },
+      { at: 55, label: 'Reviewing CI workflow status...' },
+      { at: 72, label: 'Generating detailed AI report...' },
+      { at: 88, label: 'Finalizing report...' }
+    ];
+
+    let current = 0;
+    progressTimer.current = setInterval(() => {
+      current = Math.min(current + 2 + Math.random() * 3, 92);
+      setProgress(current);
+      const stage = [...stages].reverse().find(s => current >= s.at);
+      if (stage) setProgressLabel(stage.label);
+    }, 400);
+
+    return () => {
+      if (progressTimer.current) clearInterval(progressTimer.current);
+    };
+  }, [running]);
 
   const handleRunNow = async () => {
     setRunning(true);
     setError(null);
+    setProgressLabel('Starting heartbeat check...');
     try {
       const res = await fetch('/api/heartbeat/run', { method: 'POST' });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to generate report');
-      }
+      if (!res.ok) throw new Error(data.error || 'Failed to generate report');
+      setProgress(100);
+      setProgressLabel('Report complete!');
       setReport(data);
+      setSelectedId(data.id);
+      await fetchHistory();
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setRunning(false);
+      setTimeout(() => setRunning(false), 600);
+    }
+  };
+
+  const handleSelectReport = async (id: string) => {
+    if (id === selectedId) return;
+    setError(null);
+    try {
+      await loadReport(id);
+    } catch {
+      setError('Could not load that report');
     }
   };
 
@@ -109,114 +347,58 @@ export default function Heartbeat() {
         <div>
           <h2 className="page-title">Heartbeat</h2>
           <p className="text-muted heartbeat-subtitle">
-            Repo health for onboarded products — checks GitHub activity, PRs, and CI.
+            Repo health reports for onboarded products — activity, issues, and recommendations.
           </p>
-          {report && (
-            <p className="text-muted heartbeat-meta">
-              Last run: {formatRelativeTime(report.generatedAt)}
-              {' · '}
-              Trigger: {report.trigger === 'manual' ? 'Manual' : 'Scheduled'}
-            </p>
-          )}
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={handleRunNow}
-          disabled={running}
-        >
-          {running ? 'Checking repos...' : 'Generate Report Now'}
+        <button className="btn btn-primary" onClick={handleRunNow} disabled={running}>
+          {running ? 'Generating...' : 'Generate Report Now'}
         </button>
       </div>
 
-      {error && (
-        <div className="heartbeat-error slide-in">{error}</div>
-      )}
+      {error && <div className="heartbeat-error slide-in">{error}</div>}
 
-      {!report && !running && (
-        <div className="card heartbeat-empty slide-in">
-          <p className="text-muted">No heartbeat report yet.</p>
-          <p>Click <strong>Generate Report Now</strong> to check MeetingGenius, Janus, and other onboarded repos.</p>
-        </div>
-      )}
+      {running && <LoadingBar progress={progress} label={progressLabel} />}
 
-      {(report || running) && (
-        <>
-          <div className="grid-2 heartbeat-products">
-            {(report?.products || []).map((p, i) => (
-              <div
-                key={p.productId}
-                className="card heartbeat-product-card slide-in"
-                style={{ animationDelay: `${i * 80}ms` }}
-              >
-                <div className="heartbeat-product-header">
-                  <div>
-                    <h3>{p.productName}</h3>
-                    <p className="mono text-muted heartbeat-scope">
-                      {p.owner}/{p.repo}
-                    </p>
-                  </div>
-                  <span className={`badge badge-${p.status === 'green' ? 'green' : p.status === 'yellow' ? 'yellow' : 'red'}`}>
-                    {statusLabel(p.status)}
-                  </span>
-                </div>
-
-                <div className="heartbeat-metrics">
-                  <div className="metric">
-                    <span className="label">Last Commit</span>
-                    <span className="value">
-                      {p.lastCommit
-                        ? `${commitAgeText(p.lastCommit.daysAgo)} (${p.lastCommit.sha})`
-                        : '—'}
+      <div className="heartbeat-layout">
+        <aside className="heartbeat-history-panel card">
+          <h3 className="heartbeat-history-title">Report History</h3>
+          {history.length === 0 ? (
+            <p className="text-muted heartbeat-history-empty">No reports yet. Run your first heartbeat check.</p>
+          ) : (
+            <ul className="heartbeat-history-list">
+              {history.map(item => (
+                <li key={item.id}>
+                  <button
+                    className={`heartbeat-history-item ${selectedId === item.id ? 'active' : ''}`}
+                    onClick={() => handleSelectReport(item.id)}
+                  >
+                    <span className="heartbeat-history-datetime">{formatDateTime(item.generatedAt)}</span>
+                    <span className={`badge badge-sm ${item.trigger === 'manual' ? 'badge-blue' : 'badge-purple'}`}>
+                      {item.trigger === 'manual' ? 'Manual' : 'Scheduled'}
                     </span>
-                  </div>
-                  <div className="metric">
-                    <span className="label">Branch</span>
-                    <span className="value">{p.defaultBranch || '—'}</span>
-                  </div>
-                  <div className="metric">
-                    <span className="label">Open PRs</span>
-                    <span className="value">{p.openPrCount}</span>
-                  </div>
-                  <div className="metric">
-                    <span className="label">CI Status</span>
-                    <span className="value">
-                      {!p.ci.available
-                        ? 'Not configured'
-                        : p.ci.conclusion === 'success'
-                          ? 'Passing'
-                          : p.ci.conclusion || 'Pending'}
+                    <span className="heartbeat-history-stats">
+                      {item.summary.green > 0 && <span className="dot green">{item.summary.green}</span>}
+                      {item.summary.yellow > 0 && <span className="dot yellow">{item.summary.yellow}</span>}
+                      {item.summary.red > 0 && <span className="dot red">{item.summary.red}</span>}
                     </span>
-                  </div>
-                </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
 
-                {p.issues.length > 0 && (
-                  <ul className="heartbeat-issues">
-                    {p.issues.map((issue, idx) => (
-                      <li key={idx}>{issue}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {report?.aiReport && (
-            <div className="card heartbeat-report slide-in">
-              <div className="heartbeat-report-header">
-                <h3>AI Report</h3>
-                {report.aiError && (
-                  <span className="badge badge-yellow">Fallback summary (AI unavailable)</span>
-                )}
-              </div>
-              <div className="heartbeat-report-body">
-                {report.aiReport.split('\n').map((line, i) => (
-                  <p key={i}>{line || '\u00A0'}</p>
-                ))}
-              </div>
+        <div className="heartbeat-main">
+          {!report && !running && (
+            <div className="card heartbeat-empty slide-in">
+              <p className="text-muted">No heartbeat report yet.</p>
+              <p>Click <strong>Generate Report Now</strong> to check MeetingGenius, Janus, and other onboarded repos.</p>
             </div>
           )}
-        </>
-      )}
+
+          {report && !running && <ReportDetail report={report} />}
+        </div>
+      </div>
     </div>
   );
 }

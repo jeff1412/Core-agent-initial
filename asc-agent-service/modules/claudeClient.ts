@@ -140,7 +140,8 @@ export async function chatWithGemini(
 export async function generateText(
   systemPrompt: string,
   userPrompt: string,
-  temperature = 0.5
+  temperature = 0.5,
+  maxOutputTokens = 2048
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -156,7 +157,7 @@ export async function generateText(
     body: JSON.stringify({
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      generationConfig: { temperature, maxOutputTokens: 2048 }
+      generationConfig: { temperature, maxOutputTokens }
     })
   });
 
