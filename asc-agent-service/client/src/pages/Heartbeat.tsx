@@ -75,6 +75,54 @@ function commitAgeText(daysAgo: number): string {
   return `${daysAgo} days ago`;
 }
 
+function normalizeProduct(p: Partial<ProductHeartbeat>): ProductHeartbeat {
+  return {
+    productId: p.productId || '',
+    productName: p.productName || 'Unknown',
+    owner: p.owner || '',
+    repo: p.repo || '',
+    status: p.status || 'red',
+    reachable: p.reachable ?? false,
+    defaultBranch: p.defaultBranch ?? null,
+    lastCommit: p.lastCommit ?? null,
+    openPrCount: p.openPrCount ?? 0,
+    stalePrCount: p.stalePrCount ?? 0,
+    ci: p.ci ?? { available: false, conclusion: null, runAt: null },
+    issues: Array.isArray(p.issues) ? p.issues : [],
+    recommendations: Array.isArray(p.recommendations) ? p.recommendations : [],
+    openPrs: Array.isArray(p.openPrs) ? p.openPrs : [],
+    commitsLast7Days: p.commitsLast7Days ?? 0
+  };
+}
+
+function normalizeReport(raw: Partial<HeartbeatReport> & { empty?: boolean }): HeartbeatReport | null {
+  if (!raw || raw.empty || !raw.id) return null;
+  return {
+    id: raw.id,
+    generatedAt: raw.generatedAt || new Date().toISOString(),
+    trigger: raw.trigger === 'scheduled' ? 'scheduled' : 'manual',
+    products: Array.isArray(raw.products) ? raw.products.map(normalizeProduct) : [],
+    aiReport: raw.aiReport ?? null,
+    aiError: raw.aiError ?? null
+  };
+}
+
+function normalizeHistoryItem(item: Partial<HistoryItem>): HistoryItem | null {
+  if (!item?.id || !item.generatedAt) return null;
+  const summary = item.summary || { green: 0, yellow: 0, red: 0, products: [] };
+  return {
+    id: item.id,
+    generatedAt: item.generatedAt,
+    trigger: item.trigger === 'scheduled' ? 'scheduled' : 'manual',
+    summary: {
+      green: summary.green ?? 0,
+      yellow: summary.yellow ?? 0,
+      red: summary.red ?? 0,
+      products: Array.isArray(summary.products) ? summary.products : []
+    }
+  };
+}
+
 function renderReportMarkdown(text: string) {
   const lines = text.split('\n');
   const elements: ReactNode[] = [];
@@ -135,6 +183,7 @@ function LoadingBar({ progress, label }: { progress: number; label: string }) {
 }
 
 function ReportDetail({ report }: { report: HeartbeatReport }) {
+  const products = report.products || [];
   return (
     <>
       <div className="heartbeat-report-meta card slide-in">
@@ -155,8 +204,13 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
       </div>
 
       <div className="grid-2 heartbeat-products">
-        {report.products.map((p, i) => (
-          <div key={p.productId} className="card heartbeat-product-card slide-in" style={{ animationDelay: `${i * 60}ms` }}>
+        {products.map((p, i) => {
+          const openPrs = p.openPrs || [];
+          const issues = p.issues || [];
+          const recommendations = p.recommendations || [];
+          const ci = p.ci || { available: false, conclusion: null, runAt: null };
+          return (
+          <div key={p.productId || i} className="card heartbeat-product-card slide-in" style={{ animationDelay: `${i * 60}ms` }}>
             <div className="heartbeat-product-header">
               <div>
                 <h3>{p.productName}</h3>
@@ -185,7 +239,7 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
               <div className="metric">
                 <span className="label">CI Status</span>
                 <span className="value">
-                  {!p.ci.available ? 'Not configured' : p.ci.conclusion === 'success' ? 'Passing' : p.ci.conclusion || 'Pending'}
+                  {!ci.available ? 'Not configured' : ci.conclusion === 'success' ? 'Passing' : ci.conclusion || 'Pending'}
                 </span>
               </div>
             </div>
@@ -194,10 +248,10 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
               <p className="heartbeat-commit-msg">"{p.lastCommit.message}" — @{p.lastCommit.author}</p>
             )}
 
-            {p.openPrs.length > 0 && (
+            {openPrs.length > 0 && (
               <div className="heartbeat-pr-list">
                 <span className="label">Open PRs</span>
-                {p.openPrs.map(pr => (
+                {openPrs.map(pr => (
                   <div key={pr.number} className="heartbeat-pr-item">
                     <span className="mono">#{pr.number}</span> {pr.title}
                     <span className="text-muted"> — @{pr.author}, {pr.daysOpen}d</span>
@@ -206,21 +260,22 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
               </div>
             )}
 
-            {p.issues.length > 0 && (
+            {issues.length > 0 && (
               <div className="heartbeat-block heartbeat-block-issues">
                 <span className="heartbeat-block-title">Issues</span>
-                <ul>{p.issues.map((issue, idx) => <li key={idx}>{issue}</li>)}</ul>
+                <ul>{issues.map((issue, idx) => <li key={idx}>{issue}</li>)}</ul>
               </div>
             )}
 
-            {p.recommendations.length > 0 && (
+            {recommendations.length > 0 && (
               <div className="heartbeat-block heartbeat-block-recs">
                 <span className="heartbeat-block-title">Recommendations</span>
-                <ul>{p.recommendations.map((rec, idx) => <li key={idx}>{rec}</li>)}</ul>
+                <ul>{recommendations.map((rec, idx) => <li key={idx}>{rec}</li>)}</ul>
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {report.aiReport && (
@@ -252,15 +307,22 @@ export default function Heartbeat() {
   const fetchHistory = useCallback(() => {
     return fetch('/api/heartbeat/history')
       .then(r => r.json())
-      .then(data => setHistory(Array.isArray(data) ? data : []))
-      .catch(() => {});
+      .then(data => {
+        const items = Array.isArray(data)
+          ? data.map(normalizeHistoryItem).filter((x): x is HistoryItem => x !== null)
+          : [];
+        setHistory(items);
+      })
+      .catch(() => setHistory([]));
   }, []);
 
   const loadReport = useCallback(async (id: string) => {
     const res = await fetch(`/api/heartbeat/${id}`);
     if (!res.ok) throw new Error('Report not found');
     const data = await res.json();
-    setReport(data);
+    const normalized = normalizeReport(data);
+    if (!normalized) throw new Error('Invalid report data');
+    setReport(normalized);
     setSelectedId(id);
   }, []);
 
@@ -269,9 +331,10 @@ export default function Heartbeat() {
       fetch('/api/heartbeat/latest').then(r => r.json()),
       fetchHistory()
     ]).then(([latest]) => {
-      if (latest && !latest.empty) {
-        setReport(latest);
-        setSelectedId(latest.id);
+      const normalized = normalizeReport(latest);
+      if (normalized) {
+        setReport(normalized);
+        setSelectedId(normalized.id);
       }
     }).catch(() => setError('Failed to load heartbeat data'))
       .finally(() => setLoading(false));
@@ -317,8 +380,11 @@ export default function Heartbeat() {
       if (!res.ok) throw new Error(data.error || 'Failed to generate report');
       setProgress(100);
       setProgressLabel('Report complete!');
-      setReport(data);
-      setSelectedId(data.id);
+      const normalized = normalizeReport(data);
+      if (normalized) {
+        setReport(normalized);
+        setSelectedId(normalized.id);
+      }
       await fetchHistory();
     } catch (e: any) {
       setError(e.message);
@@ -377,9 +443,9 @@ export default function Heartbeat() {
                       {item.trigger === 'manual' ? 'Manual' : 'Scheduled'}
                     </span>
                     <span className="heartbeat-history-stats">
-                      {item.summary.green > 0 && <span className="dot green">{item.summary.green}</span>}
-                      {item.summary.yellow > 0 && <span className="dot yellow">{item.summary.yellow}</span>}
-                      {item.summary.red > 0 && <span className="dot red">{item.summary.red}</span>}
+                      {(item.summary?.green ?? 0) > 0 && <span className="dot green">{item.summary.green}</span>}
+                      {(item.summary?.yellow ?? 0) > 0 && <span className="dot yellow">{item.summary.yellow}</span>}
+                      {(item.summary?.red ?? 0) > 0 && <span className="dot red">{item.summary.red}</span>}
                     </span>
                   </button>
                 </li>
