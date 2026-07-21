@@ -79,3 +79,56 @@ export async function generateCode(systemPrompt: string, userPrompt: string): Pr
     throw error;
   }
 }
+
+export interface ChatMessage {
+  role: 'user' | 'agent';
+  text: string;
+}
+
+/**
+ * chatWithGemini(systemPrompt, messages, userMessage)
+ * Proxies dashboard chat through the server so the API key stays in .env.
+ */
+export async function chatWithGemini(
+  systemPrompt: string,
+  messages: ChatMessage[],
+  userMessage: string
+): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set in .env');
+  }
+
+  const model = 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const contents = [
+    ...messages.map(m => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.text }]
+    })),
+    { role: 'user', parts: [{ text: userMessage }] }
+  ];
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents,
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API returned status ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json() as any;
+  if (data.error) {
+    throw new Error(data.error.message || 'Unknown Gemini API error');
+  }
+
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'I encountered an issue processing your request.';
+}

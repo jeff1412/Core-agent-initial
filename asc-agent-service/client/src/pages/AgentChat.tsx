@@ -6,7 +6,6 @@ interface Message {
   text: string;
 }
 
-const API_KEY = 'AIzaSyClOu7sMH4xHEU7DDHCuvJoVY8cWvuMKt4';
 const MODEL = 'gemini-2.5-flash';
 const SYSTEM_PROMPT = `You are the ASC Agent (Automated Software Contractor), a specialized AI engineer designed to assist with software development tasks within the ASC platform. Your primary capabilities include:
 1. Analyzing codebases and products onboarded to the platform.
@@ -44,35 +43,27 @@ export default function AgentChat() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`, {
+      const history = messages.filter(m => m.role !== 'error').map(m => ({
+        role: m.role as 'user' | 'agent',
+        text: m.text
+      }));
+
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: SYSTEM_PROMPT }]
-          },
-          contents: [
-            ...messages.filter(m => m.role !== 'error').map(m => ({
-              role: m.role === 'user' ? 'user' : 'model',
-              parts: [{ text: m.text }]
-            })),
-            { role: 'user', parts: [{ text: userMessage }] }
-          ],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2048,
-          }
+          systemPrompt: SYSTEM_PROMPT,
+          messages: history,
+          userMessage
         })
       });
 
       const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error.message || 'Failed to get response from Gemini');
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get response from Gemini');
       }
 
-      const agentText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'I encountered an issue processing your request.';
-      setMessages(prev => [...prev, { role: 'agent', text: agentText }]);
+      setMessages(prev => [...prev, { role: 'agent', text: data.text }]);
     } catch (err: any) {
       console.error('Chat error:', err);
       setMessages(prev => [...prev, { role: 'error', text: `Error: ${err.message}` }]);

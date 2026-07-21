@@ -21,6 +21,7 @@ import { getPullRequests, PullRequestSummary } from './modules/githubWriter';
 import { checkHealth } from './modules/healthChecker';
 import { getEscalations, clearEscalation } from './modules/escalationManager';
 import { runPipeline, PipelinePayload } from './modules/agentEngine';
+import { chatWithGemini, ChatMessage } from './modules/claudeClient';
 
 async function startServer() {
   const app = express();
@@ -105,6 +106,23 @@ async function startServer() {
   app.delete('/api/escalations/:id', (req: Request, res: Response) => {
     clearEscalation(req.params.id as string);
     res.status(204).end();
+  });
+
+  // Agent Chat API (Gemini proxy — key stays server-side)
+  app.post('/api/chat', async (req: Request, res: Response) => {
+    try {
+      const { messages, userMessage, systemPrompt } = req.body;
+      if (!userMessage || typeof userMessage !== 'string') {
+        return res.status(400).json({ error: 'userMessage is required' });
+      }
+      const history: ChatMessage[] = Array.isArray(messages) ? messages : [];
+      const prompt = systemPrompt || 'You are the ASC Agent, a helpful software development assistant.';
+      const text = await chatWithGemini(prompt, history, userMessage);
+      res.json({ text });
+    } catch (e: any) {
+      console.error('[Chat API] Error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // Task Intake API (Web Form)
