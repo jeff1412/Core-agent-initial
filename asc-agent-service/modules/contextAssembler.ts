@@ -5,6 +5,7 @@
  */
 
 import { Octokit } from '@octokit/rest';
+import { getGithubToken } from './githubTokenStore';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -43,10 +44,10 @@ export interface AssembledContext {
  * assembleContext(productName, referenceFiles)
  */
 export async function assembleContext(productName: string, referenceFiles: string | string[] = []): Promise<AssembledContext> {
-  const githubToken = process.env.GITHUB_TOKEN;
+  const githubToken = getGithubToken();
   const githubOrg   = process.env.GITHUB_ORG;
 
-  if (!githubToken) throw new Error('GITHUB_TOKEN is not set in .env');
+  if (!githubToken) throw new Error('GitHub token is not configured');
   if (!githubOrg)   throw new Error('GITHUB_ORG is not set in .env');
 
   const octokit = new Octokit({ auth: githubToken });

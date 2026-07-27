@@ -11,11 +11,34 @@ interface Product {
   onboarded: string;
 }
 
+interface GithubTokenStatus {
+  configured: boolean;
+  source: 'dashboard' | 'env' | null;
+  username: string | null;
+  updatedAt: string | null;
+  masked: string | null;
+  hasDashboardToken: boolean;
+  hasEnvFallback: boolean;
+}
+
 export default function Repositories() {
   const [repos, setRepos] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newRepo, setNewRepo] = useState({ name: '', owner: '', repo: '', channel: '' });
+
+  const [tokenStatus, setTokenStatus] = useState<GithubTokenStatus | null>(null);
+  const [tokenInput, setTokenInput] = useState('');
+  const [tokenSaving, setTokenSaving] = useState(false);
+  const [tokenMessage, setTokenMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showTokenField, setShowTokenField] = useState(false);
+
+  const fetchTokenStatus = () => {
+    fetch('/api/github-token')
+      .then(res => res.json())
+      .then(data => setTokenStatus(data))
+      .catch(() => setTokenStatus(null));
+  };
 
   const fetchRepos = () => {
     setLoading(true);
@@ -33,7 +56,52 @@ export default function Repositories() {
 
   useEffect(() => {
     fetchRepos();
+    fetchTokenStatus();
   }, []);
+
+  const handleSaveToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tokenInput.trim()) return;
+
+    setTokenSaving(true);
+    setTokenMessage(null);
+    try {
+      const res = await fetch('/api/github-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: tokenInput.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save token');
+
+      setTokenMessage({ type: 'success', text: `Token saved — authorized as @${data.username}` });
+      setTokenInput('');
+      setShowTokenField(false);
+      setTokenStatus(data.status);
+    } catch (err: any) {
+      setTokenMessage({ type: 'error', text: err.message });
+    } finally {
+      setTokenSaving(false);
+    }
+  };
+
+  const handleRemoveToken = async () => {
+    if (!confirm('Remove the dashboard GitHub token? The server will fall back to .env if configured.')) return;
+
+    setTokenSaving(true);
+    setTokenMessage(null);
+    try {
+      const res = await fetch('/api/github-token', { method: 'DELETE' });
+      const data = await res.json();
+      setTokenStatus(data.status);
+      setTokenMessage({ type: 'success', text: 'Dashboard token removed.' });
+      setTokenInput('');
+    } catch {
+      setTokenMessage({ type: 'error', text: 'Failed to remove token' });
+    } finally {
+      setTokenSaving(false);
+    }
+  };
 
   const handleAddRepo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,6 +148,88 @@ export default function Repositories() {
         </button>
       </div>
 
+      <div className="card github-token-card slide-in">
+        <div className="github-token-header">
+          <div>
+            <h3 className="github-token-title">GitHub Access Token</h3>
+            <p className="text-muted github-token-desc">
+              Used for Pushes & PRs, Heartbeat, and agent GitHub operations. Dashboard token overrides the server .env token.
+            </p>
+          </div>
+          {tokenStatus?.configured && (
+            <span className={`badge ${tokenStatus.source === 'dashboard' ? 'badge-green' : 'badge-blue'}`}>
+              {tokenStatus.source === 'dashboard' ? 'Dashboard Token' : 'Server .env Token'}
+            </span>
+          )}
+        </div>
+
+        <div className="github-token-status">
+          {tokenStatus?.configured ? (
+            <>
+              <div className="github-token-status-row">
+                <span className="label">Authorized as</span>
+                <span className="value mono">@{tokenStatus.username || 'unknown'}</span>
+              </div>
+              {tokenStatus.masked && (
+                <div className="github-token-status-row">
+                  <span className="label">Token</span>
+                  <span className="value mono">{tokenStatus.masked}</span>
+                </div>
+              )}
+              {tokenStatus.updatedAt && tokenStatus.source === 'dashboard' && (
+                <div className="github-token-status-row">
+                  <span className="label">Last updated</span>
+                  <span className="value">{new Date(tokenStatus.updatedAt).toLocaleString()}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-muted github-token-none">No GitHub token configured. Add one below or set GITHUB_TOKEN in server .env.</p>
+          )}
+        </div>
+
+        {tokenMessage && (
+          <div className={`github-token-message ${tokenMessage.type}`}>{tokenMessage.text}</div>
+        )}
+
+        {showTokenField ? (
+          <form onSubmit={handleSaveToken} className="github-token-form">
+            <div className="form-group">
+              <label>Personal Access Token</label>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="ghp_... or github_pat_..."
+                value={tokenInput}
+                onChange={e => setTokenInput(e.target.value)}
+                autoComplete="off"
+                required
+              />
+              <p className="form-hint">Needs <code>repo</code> scope to read private repositories. Token is stored on the server only — never shown again after saving.</p>
+            </div>
+            <div className="github-token-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => { setShowTokenField(false); setTokenInput(''); }}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={tokenSaving || !tokenInput.trim()}>
+                {tokenSaving ? 'Verifying...' : 'Save Token'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="github-token-actions">
+            <button className="btn btn-primary" onClick={() => setShowTokenField(true)}>
+              {tokenStatus?.hasDashboardToken ? 'Update Token' : 'Add GitHub Token'}
+            </button>
+            {tokenStatus?.hasDashboardToken && (
+              <button className="btn btn-secondary" onClick={handleRemoveToken} disabled={tokenSaving}>
+                Remove Dashboard Token
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="grid-3">
         {repos.map((r, i) => (
           <div key={r.id} className="card slide-in" style={{ animationDelay: `${i * 100}ms` }}>
@@ -109,7 +259,9 @@ export default function Repositories() {
             
             <div className="flex items-center justify-between" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 'var(--space-3)', fontSize: '11px' }}>
               <span className="text-muted">Onboarded: {r.onboarded}</span>
-              <span className="badge badge-green">Connected</span>
+              <span className={`badge ${tokenStatus?.configured ? 'badge-green' : 'badge-yellow'}`}>
+                {tokenStatus?.configured ? 'Onboarded' : 'No Token'}
+              </span>
             </div>
           </div>
         ))}
@@ -139,7 +291,7 @@ export default function Repositories() {
                 <input 
                   type="text" 
                   className="form-input" 
-                  placeholder="e.g. jeff1412"
+                  placeholder="e.g. asccreative"
                   value={newRepo.owner}
                   onChange={e => setNewRepo({...newRepo, owner: e.target.value})}
                 />
@@ -149,7 +301,7 @@ export default function Repositories() {
                 <input 
                   type="text" 
                   className="form-input" 
-                  placeholder="e.g. Core-agent-initial"
+                  placeholder="e.g. meetinggenius2"
                   value={newRepo.repo}
                   onChange={e => setNewRepo({...newRepo, repo: e.target.value})}
                   required

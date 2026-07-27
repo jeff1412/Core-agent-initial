@@ -5,6 +5,7 @@
  */
 
 import { Octokit } from '@octokit/rest';
+import { getGithubToken } from './githubTokenStore';
 
 export interface PRCreateOptions {
   productRepo: string;
@@ -33,11 +34,11 @@ export interface PullRequestSummary {
 export async function createDraftPR(options: PRCreateOptions): Promise<string> {
   const { productRepo, productOwner, description, filePath, fileContent, taskBrief } = options;
 
-  const githubToken = process.env.GITHUB_TOKEN;
+  const githubToken = getGithubToken();
   const githubOrg   = productOwner || process.env.GITHUB_ORG;
 
   if (!githubToken || !githubOrg) {
-    throw new Error('GITHUB_TOKEN or GITHUB_ORG not set in .env');
+    throw new Error('GitHub token or GITHUB_ORG is not configured');
   }
 
   const octokit = new Octokit({ auth: githubToken });
@@ -136,7 +137,7 @@ ${taskBrief['Acceptance Criteria'] || 'Review against criteria.'}
  * Fetches both commits (representing Pushes) and Pull Requests to audit who is pushing/pulling.
  */
 export async function getPullRequests(productRepo: string, productOwner?: string): Promise<PullRequestSummary[]> {
-  const githubToken = process.env.GITHUB_TOKEN;
+  const githubToken = getGithubToken();
   const githubOrg   = productOwner || process.env.GITHUB_ORG;
 
   if (!githubToken || !githubOrg) return [];

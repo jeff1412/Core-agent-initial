@@ -5,6 +5,7 @@
  */
 
 import { Octokit } from '@octokit/rest';
+import { getGithubToken } from './githubTokenStore';
 
 export interface HealthStatus {
   agentService: 'green' | 'yellow' | 'red' | 'grey';
@@ -26,9 +27,10 @@ export async function checkHealth(): Promise<HealthStatus> {
   };
 
   // 1. Check GitHub
-  if (process.env.GITHUB_TOKEN) {
+  const githubToken = getGithubToken();
+  if (githubToken) {
     try {
-      const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+      const octokit = new Octokit({ auth: githubToken });
       const { data: user } = await octokit.rest.users.getAuthenticated();
       status.github = 'green';
       status.githubUser = user.login;

@@ -6,3 +6,4 @@ build/
 *.log
 .gemini/
 asc-agent-service/heartbeat-history.json
+asc-agent-service/github-token.json

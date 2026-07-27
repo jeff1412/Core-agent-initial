@@ -24,6 +24,7 @@ import { runPipeline, PipelinePayload } from './modules/agentEngine';
 import { chatWithGemini, ChatMessage } from './modules/claudeClient';
 import { runHeartbeat, isHeartbeatRunning } from './modules/heartbeatRunner';
 import { getLatestReport, getReportHistory, getReportById } from './modules/heartbeatStore';
+import { getGithubTokenStatusAsync, saveGithubToken, clearGithubToken } from './modules/githubTokenStore';
 import cron from 'node-cron';
 
 async function startServer() {
@@ -75,6 +76,30 @@ async function startServer() {
     } catch (e) {
       res.status(500).json({ error: 'Failed to update product registry' });
     }
+  });
+
+  // GitHub Token API (dashboard-managed, overrides .env when set)
+  app.get('/api/github-token', async (req: Request, res: Response) => {
+    res.json(await getGithubTokenStatusAsync());
+  });
+
+  app.post('/api/github-token', async (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: 'token is required' });
+      }
+      const { username } = await saveGithubToken(token);
+      res.json({ success: true, username, status: await getGithubTokenStatusAsync() });
+    } catch (e: any) {
+      console.error('[GitHub Token API] Save failed:', e.message);
+      res.status(400).json({ error: e.message || 'Invalid GitHub token' });
+    }
+  });
+
+  app.delete('/api/github-token', async (req: Request, res: Response) => {
+    clearGithubToken();
+    res.json({ success: true, status: await getGithubTokenStatusAsync() });
   });
 
   // Events API

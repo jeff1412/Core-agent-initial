@@ -5,6 +5,7 @@
  */
 
 import { Octokit } from '@octokit/rest';
+import { getGithubToken } from './githubTokenStore';
 
 export type HeartbeatStatus = 'green' | 'yellow' | 'red';
 
@@ -110,11 +111,11 @@ export async function checkProductRepo(product: {
   repo: string;
 }): Promise<ProductHeartbeat> {
   const owner = product.owner || process.env.GITHUB_ORG || '';
-  const githubToken = process.env.GITHUB_TOKEN;
+  const githubToken = getGithubToken();
   const base = emptyCheck({ ...product, owner });
 
   if (!githubToken) {
-    base.issues.push('GITHUB_TOKEN is not configured');
+    base.issues.push('GitHub token is not configured — add one on the Repositories tab');
     return { ...base, recommendations: buildRecommendations(base), status: 'red' };
   }
 
