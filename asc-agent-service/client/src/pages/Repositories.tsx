@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 import './Repositories.css';
 
 interface Product {
@@ -34,7 +35,7 @@ export default function Repositories() {
   const [showTokenField, setShowTokenField] = useState(false);
 
   const fetchTokenStatus = () => {
-    fetch('/api/github-token')
+    apiFetch('/api/github-token')
       .then(res => res.json())
       .then(data => setTokenStatus(data))
       .catch(() => setTokenStatus(null));
@@ -42,7 +43,7 @@ export default function Repositories() {
 
   const fetchRepos = () => {
     setLoading(true);
-    fetch('/api/products')
+    apiFetch('/api/products')
       .then(res => res.json())
       .then(data => {
         setRepos(data);
@@ -66,7 +67,7 @@ export default function Repositories() {
     setTokenSaving(true);
     setTokenMessage(null);
     try {
-      const res = await fetch('/api/github-token', {
+      const res = await apiFetch('/api/github-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: tokenInput.trim() })
@@ -91,7 +92,7 @@ export default function Repositories() {
     setTokenSaving(true);
     setTokenMessage(null);
     try {
-      const res = await fetch('/api/github-token', { method: 'DELETE' });
+      const res = await apiFetch('/api/github-token', { method: 'DELETE' });
       const data = await res.json();
       setTokenStatus(data.status);
       setTokenMessage({ type: 'success', text: 'Dashboard token removed.' });
@@ -106,7 +107,7 @@ export default function Repositories() {
   const handleAddRepo = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/products', {
+      const res = await apiFetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRepo)
@@ -124,7 +125,7 @@ export default function Repositories() {
   const handleDeleteRepo = async (id: string) => {
     if (!confirm('Are you sure you want to delete this repository?')) return;
     try {
-      const res = await fetch(`/api/products/${id}`, {
+      const res = await apiFetch(`/api/products/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {

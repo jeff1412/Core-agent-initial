@@ -6,6 +6,7 @@
 
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -21,10 +22,14 @@ import { getPullRequests, PullRequestSummary } from './modules/githubWriter';
 import { checkHealth } from './modules/healthChecker';
 import { getEscalations, clearEscalation } from './modules/escalationManager';
 import { runPipeline, PipelinePayload } from './modules/agentEngine';
-import { chatWithGemini, ChatMessage } from './modules/claudeClient';
+import { chatWithLlm, ChatMessage, getActiveLlmLabel } from './modules/llmClient';
 import { runHeartbeat, isHeartbeatRunning } from './modules/heartbeatRunner';
 import { getLatestReport, getReportHistory, getReportById } from './modules/heartbeatStore';
 import { getGithubTokenStatusAsync, saveGithubToken, clearGithubToken } from './modules/githubTokenStore';
+import { login, logout, getSessionUser, changePassword } from './modules/authStore';
+import { authMiddleware, SESSION_COOKIE_OPTIONS } from './modules/authMiddleware';
+import { getLlmConfigStatus, saveLlmConfig, setActiveProvider, LLM_MODEL_OPTIONS, LlmProvider } from './modules/llmConfigStore';
+import { createTask, getTaskHistory, getTaskById } from './modules/taskStore';
 import cron from 'node-cron';
 
 async function startServer() {
@@ -33,10 +38,89 @@ async function startServer() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use(cookieParser());
 
-  // API Health
+  // API Health (public)
   app.get('/api/health', (req: Request, res: Response) => {
     res.status(200).json({ status: 'ok', service: 'asc-agent-service' });
+  });
+
+  // Auth (login public; rest protected below)
+  app.post('/api/auth/login', (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+      const result = login(email, password);
+      res.cookie('asc_session', result.token, SESSION_COOKIE_OPTIONS);
+      res.json({ user: result.user });
+    } catch (e: any) {
+      res.status(401).json({ error: e.message });
+    }
+  });
+
+  app.use(authMiddleware);
+
+  app.post('/api/auth/logout', (req: Request, res: Response) => {
+    const token = req.cookies?.asc_session;
+    if (token) logout(token);
+    res.clearCookie('asc_session');
+    res.json({ success: true });
+  });
+
+  app.get('/api/auth/me', (req: Request, res: Response) => {
+    const user = (req as any).user;
+    res.json({ user, activeLlm: getActiveLlmLabel() });
+  });
+
+  app.post('/api/auth/change-password', (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { currentPassword, newPassword } = req.body;
+      changePassword(user.email, currentPassword, newPassword);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // LLM Config API
+  app.get('/api/llm-config', (req: Request, res: Response) => {
+    res.json({ ...getLlmConfigStatus(), modelOptions: LLM_MODEL_OPTIONS });
+  });
+
+  app.post('/api/llm-config', (req: Request, res: Response) => {
+    try {
+      const status = saveLlmConfig(req.body);
+      res.json(status);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/llm-config/active', (req: Request, res: Response) => {
+    try {
+      const { provider } = req.body;
+      if (!['gemini', 'openai', 'anthropic'].includes(provider)) {
+        return res.status(400).json({ error: 'Invalid provider' });
+      }
+      res.json(setActiveProvider(provider as LlmProvider));
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Task History API
+  app.get('/api/tasks', (req: Request, res: Response) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    res.json(getTaskHistory(limit));
+  });
+
+  app.get('/api/tasks/:id', (req: Request, res: Response) => {
+    const task = getTaskById(req.params.id as string);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    res.json(task);
   });
 
   // Product Registry API
@@ -145,8 +229,8 @@ async function startServer() {
       }
       const history: ChatMessage[] = Array.isArray(messages) ? messages : [];
       const prompt = systemPrompt || 'You are the ASC Agent, a helpful software development assistant.';
-      const text = await chatWithGemini(prompt, history, userMessage);
-      res.json({ text });
+      const text = await chatWithLlm(prompt, history, userMessage);
+      res.json({ text, model: getActiveLlmLabel() });
     } catch (e: any) {
       console.error('[Chat API] Error:', e.message);
       res.status(500).json({ error: e.message });
@@ -198,14 +282,29 @@ async function startServer() {
 
   // Task Intake API (Web Form)
   app.post('/api/intake', async (req: Request, res: Response) => {
-    res.status(200).json({ status: 'accepted', message: 'Task submitted to engine' });
-    
     const { product, description, type, taskType, priority, acceptanceCriteria, doNotTouch, referenceFiles } = req.body;
     const finalType = type || taskType || 'Feature';
-    
+    const postId = 'web-form-' + Date.now().toString(36);
+    const user = (req as any).user;
+
+    const task = createTask({
+      postId,
+      source: 'web-form',
+      submittedBy: user?.email || null,
+      product,
+      taskType: finalType,
+      priority: priority || 'Medium',
+      description,
+      acceptanceCriteria: acceptanceCriteria || '',
+      doNotTouch,
+      referenceFiles
+    });
+
+    res.status(200).json({ status: 'accepted', message: 'Task submitted to engine', taskId: task.id, postId });
+
     const simulatedPayload: PipelinePayload = {
       text: `Product: ${product}\nTask Type: ${finalType}\nDescription: ${description}\nAcceptance Criteria: ${acceptanceCriteria || 'N/A'}\nPriority: ${priority}\nDo Not Touch: ${doNotTouch || 'None'}\nReference Files: ${referenceFiles || 'None'}`,
-      post_id: 'web-form-' + Date.now().toString(36),
+      post_id: postId,
       channel_id: 'dashboard-ui'
     };
 

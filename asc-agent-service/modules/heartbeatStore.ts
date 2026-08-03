@@ -36,7 +36,7 @@ function normalizeProduct(raw: Partial<ProductHeartbeat> & { productId?: string;
     status: raw.status || 'red',
     reachable: raw.reachable ?? false,
     defaultBranch: raw.defaultBranch ?? null,
-    lastCommit: raw.lastCommit ?? null,
+    lastCommit: raw.lastCommit ? { ...raw.lastCommit, branch: raw.lastCommit.branch || raw.defaultBranch || 'unknown' } : null,
     openPrCount: raw.openPrCount ?? 0,
     stalePrCount: raw.stalePrCount ?? 0,
     ci: raw.ci ?? { available: false, conclusion: null, runAt: null },

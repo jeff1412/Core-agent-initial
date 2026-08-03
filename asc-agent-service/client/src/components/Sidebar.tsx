@@ -1,4 +1,3 @@
-import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import './Sidebar.css';
 
@@ -15,10 +14,10 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/intake',      icon: '✦', label: 'Task Intake' },
   { to: '/pull-requests', icon: '⎇', label: 'Pushes & PRs' },
   { to: '/repositories', icon: '⚙', label: 'Repositories' },
+  { to: '/ai-settings', icon: '✧', label: 'AI Settings' },
 ];
 
 export default function Sidebar() {
-
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -35,7 +34,6 @@ export default function Sidebar() {
           <NavLink
             key={item.to}
             to={item.to}
-            end={item.to === '/'}
             className={({ isActive }) =>
               `nav-item ${isActive ? 'nav-item--active' : ''}`
             }
@@ -49,9 +47,9 @@ export default function Sidebar() {
       <div className="sidebar-footer">
         <div className="sidebar-env-badge">
           <span className="status-dot green" />
-          <span>Development</span>
+          <span>Production</span>
         </div>
-        <span className="sidebar-version">v1.1.0-TS</span>
+        <span className="sidebar-version">v1.2.0-TS</span>
       </div>
     </aside>
   );

@@ -1,6 +1,19 @@
 .intake-card {
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: 100%;
+  margin-bottom: var(--space-6);
+}
+
+.intake-section-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  margin-bottom: var(--space-5);
+}
+
+.intake-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
 }
 
 .form-actions {

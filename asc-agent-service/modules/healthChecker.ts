@@ -6,6 +6,7 @@
 
 import { Octokit } from '@octokit/rest';
 import { getGithubToken } from './githubTokenStore';
+import { getActiveLlmConfig } from './llmConfigStore';
 
 export interface HealthStatus {
   agentService: 'green' | 'yellow' | 'red' | 'grey';
@@ -13,6 +14,7 @@ export interface HealthStatus {
   githubUser: string | null;
   claude: 'green' | 'yellow' | 'red' | 'grey';
   modelName: string | null;
+  llmProvider: string | null;
   timestamp: string;
 }
 
@@ -23,6 +25,7 @@ export async function checkHealth(): Promise<HealthStatus> {
     githubUser: null,
     claude: 'grey',
     modelName: null,
+    llmProvider: null,
     timestamp: new Date().toISOString()
   };
 
@@ -41,13 +44,16 @@ export async function checkHealth(): Promise<HealthStatus> {
     status.github = 'yellow'; // Missing token
   }
 
-  // 2. Check Gemini / Claude
-  if (process.env.GEMINI_API_KEY) {
+  const { provider, apiKey, model } = getActiveLlmConfig();
+  if (apiKey) {
     status.claude = 'green';
-    status.modelName = 'Gemini 2.5 Flash';
-  } else if (process.env.ANTHROPIC_API_KEY) {
-    status.claude = 'green';
-    status.modelName = 'Claude 3.7 Sonnet';
+    status.llmProvider = provider;
+    const labels: Record<string, string> = {
+      gemini: 'Gemini',
+      openai: 'GPT',
+      anthropic: 'Claude'
+    };
+    status.modelName = `${labels[provider] || provider} · ${model}`;
   } else {
     status.claude = 'yellow';
   }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 import './HealthStatus.css';
 
 interface HealthData {
@@ -15,7 +16,7 @@ export default function HealthStatus() {
   const [loading, setLoading] = useState<boolean>(true);
 
   const fetchHealth = () => {
-    fetch('/api/status')
+    apiFetch('/api/status')
       .then(res => res.json())
       .then(data => {
         setHealth(data);

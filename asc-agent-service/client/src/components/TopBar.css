@@ -124,3 +124,66 @@
   flex-shrink: 0;
   box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
 }
+
+.topbar-llm-badge {
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.topbar-user-wrap {
+  position: relative;
+}
+
+.topbar-user {
+  background: none;
+}
+
+.user-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-premium);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.user-dropdown-info {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.user-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.user-dropdown button:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.password-msg {
+  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  margin-bottom: var(--space-3);
+}

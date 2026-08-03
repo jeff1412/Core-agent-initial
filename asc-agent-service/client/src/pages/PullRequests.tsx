@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 
 interface PullRequest {
   id: number | string;
@@ -17,7 +18,7 @@ export default function PullRequests() {
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    fetch('/api/pull-requests')
+    apiFetch('/api/pull-requests')
       .then(r => r.json())
       .then(data => {
         setPrs(Array.isArray(data) ? data : []);

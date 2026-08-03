@@ -4,7 +4,7 @@
  * modules/heartbeatReporter.ts — AI narrative report from repo heartbeat snapshots
  */
 
-import { generateText } from './claudeClient';
+import { generateText } from './llmClient';
 import { ProductHeartbeat } from './repoHeartbeat';
 
 const SYSTEM_PROMPT = `You are the ASC Agent operations reporter for ASC Creative Ltd. You write detailed, professional repo health reports for product owners and engineering leads.

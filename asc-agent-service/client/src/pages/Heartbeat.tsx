@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import { apiFetch } from '../utils/api';
 import './Heartbeat.css';
 
 interface ProductHeartbeat {
@@ -15,6 +16,7 @@ interface ProductHeartbeat {
     author: string;
     date: string;
     daysAgo: number;
+    branch?: string;
   } | null;
   openPrCount: number;
   stalePrCount: number;
@@ -245,7 +247,7 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
             </div>
 
             {p.lastCommit && (
-              <p className="heartbeat-commit-msg">"{p.lastCommit.message}" — @{p.lastCommit.author}</p>
+              <p className="heartbeat-commit-msg">"{p.lastCommit.message}" — @{p.lastCommit.author} on <span className="mono">{p.lastCommit.branch || p.defaultBranch}</span></p>
             )}
 
             {openPrs.length > 0 && (
@@ -305,7 +307,7 @@ export default function Heartbeat() {
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchHistory = useCallback(() => {
-    return fetch('/api/heartbeat/history')
+    return apiFetch('/api/heartbeat/history')
       .then(r => r.json())
       .then(data => {
         const items = Array.isArray(data)
@@ -317,7 +319,7 @@ export default function Heartbeat() {
   }, []);
 
   const loadReport = useCallback(async (id: string) => {
-    const res = await fetch(`/api/heartbeat/${id}`);
+    const res = await apiFetch(`/api/heartbeat/${id}`);
     if (!res.ok) throw new Error('Report not found');
     const data = await res.json();
     const normalized = normalizeReport(data);
@@ -328,7 +330,7 @@ export default function Heartbeat() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/heartbeat/latest').then(r => r.json()),
+      apiFetch('/api/heartbeat/latest').then(r => r.json()),
       fetchHistory()
     ]).then(([latest]) => {
       const normalized = normalizeReport(latest);
@@ -375,7 +377,7 @@ export default function Heartbeat() {
     setError(null);
     setProgressLabel('Starting heartbeat check...');
     try {
-      const res = await fetch('/api/heartbeat/run', { method: 'POST' });
+      const res = await apiFetch('/api/heartbeat/run', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate report');
       setProgress(100);

@@ -7,3 +7,7 @@ build/
 .gemini/
 asc-agent-service/heartbeat-history.json
 asc-agent-service/github-token.json
+asc-agent-service/auth-users.json
+asc-agent-service/auth-sessions.json
+asc-agent-service/llm-config.json
+asc-agent-service/task-history.json

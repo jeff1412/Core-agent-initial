@@ -23,6 +23,7 @@ export interface ProductHeartbeat {
     author: string;
     date: string;
     daysAgo: number;
+    branch: string;
   } | null;
   openPrCount: number;
   stalePrCount: number;
@@ -66,7 +67,7 @@ function buildRecommendations(check: ProductCheck): string[] {
     recs.push('Verify the GitHub token has read access to this repository, or invite the token owner as a collaborator.');
   }
   if (check.lastCommit && check.lastCommit.daysAgo > STALE_COMMIT_DAYS) {
-    recs.push(`Review development activity — no commits on ${check.defaultBranch} for ${check.lastCommit.daysAgo} days. Confirm if work is paused or blocked.`);
+    recs.push(`Review development activity — last commit on ${check.lastCommit.branch} was ${check.lastCommit.daysAgo} days ago. Confirm if work is paused or blocked.`);
   }
   if (check.stalePrCount > 0) {
     recs.push(`Review ${check.stalePrCount} stale open PR(s) — merge, close, or request updates from authors.`);
@@ -129,43 +130,80 @@ export async function checkProductRepo(product: {
   try {
     const { data: repoInfo } = await octokit.rest.repos.get({ owner, repo: product.repo });
     base.reachable = true;
-    base.defaultBranch = repoInfo.default_branch;
-
-    const branch = repoInfo.default_branch || 'main';
+    const defaultBranch = repoInfo.default_branch || 'main';
+    base.defaultBranch = defaultBranch;
 
     try {
-      const { data: commits } = await octokit.rest.repos.listCommits({
-        owner,
-        repo: product.repo,
-        sha: branch,
-        per_page: 30
-      });
+      const branchesToCheck = [...new Set([
+        defaultBranch, 'main', 'master', 'develop', 'development', 'dev', 'staging'
+      ].filter(Boolean))];
 
       const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      base.commitsLast7Days = commits.filter(c => {
-        const d = c.commit.author?.date || c.commit.committer?.date;
-        return d && new Date(d).getTime() >= weekAgo;
-      }).length;
+      const seenShas = new Set<string>();
+      let latest: {
+        sha: string;
+        message: string;
+        author: string;
+        date: string;
+        daysAgo: number;
+        branch: string;
+      } | null = null;
 
-      if (commits.length > 0) {
-        const c = commits[0];
-        const date = c.commit.author?.date || c.commit.committer?.date || new Date().toISOString();
-        const daysAgo = daysSince(date);
+      for (const branchName of branchesToCheck) {
+        try {
+          const { data: commits } = await octokit.rest.repos.listCommits({
+            owner,
+            repo: product.repo,
+            sha: branchName,
+            per_page: 30
+          });
+
+          for (const c of commits) {
+            if (seenShas.has(c.sha)) continue;
+            seenShas.add(c.sha);
+            const d = c.commit.author?.date || c.commit.committer?.date;
+            if (d && new Date(d).getTime() >= weekAgo) {
+              base.commitsLast7Days += 1;
+            }
+          }
+
+          if (commits.length > 0) {
+            const c = commits[0];
+            const date = c.commit.author?.date || c.commit.committer?.date || new Date().toISOString();
+            const daysAgo = daysSince(date);
+            if (!latest || new Date(date) > new Date(latest.date)) {
+              latest = {
+                sha: c.sha.substring(0, 7),
+                message: (c.commit.message || '').split('\n')[0],
+                author: c.author?.login || c.commit.author?.name || 'unknown',
+                date,
+                daysAgo,
+                branch: branchName
+              };
+            }
+          }
+        } catch {
+          // Branch may not exist — skip
+        }
+      }
+
+      if (latest) {
         base.lastCommit = {
-          sha: c.sha.substring(0, 7),
-          message: (c.commit.message || '').split('\n')[0],
-          author: c.author?.login || c.commit.author?.name || 'unknown',
-          date: date.split('T')[0],
-          daysAgo
+          sha: latest.sha,
+          message: latest.message,
+          author: latest.author,
+          date: latest.date.split('T')[0],
+          daysAgo: latest.daysAgo,
+          branch: latest.branch
         };
-        if (daysAgo > STALE_COMMIT_DAYS) {
-          base.issues.push(`No commits on ${branch} in ${daysAgo} days`);
+        if (latest.daysAgo > STALE_COMMIT_DAYS) {
+          base.issues.push(`No commits on any tracked branch in ${latest.daysAgo} days (latest: ${latest.branch})`);
         }
       } else {
-        base.issues.push(`No commits found on ${branch}`);
+        base.issues.push('No commits found on default or common branches');
       }
     } catch {
-      base.issues.push(`Could not read commits on ${branch}`);
+      base.issues.push('Could not read commits across repository branches');
     }
 
     try {

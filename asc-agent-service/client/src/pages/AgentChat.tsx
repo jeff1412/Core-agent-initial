@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../utils/api';
 import './AgentChat.css';
 
 interface Message {
@@ -6,7 +8,6 @@ interface Message {
   text: string;
 }
 
-const MODEL = 'gemini-2.5-flash';
 const SYSTEM_PROMPT = `You are the ASC Agent (Automated Software Contractor), a specialized AI engineer designed to assist with software development tasks within the ASC platform. Your primary capabilities include:
 1. Analyzing codebases and products onboarded to the platform.
 2. Generating technical task briefs and acceptance criteria.
@@ -17,6 +18,7 @@ const SYSTEM_PROMPT = `You are the ASC Agent (Automated Software Contractor), a 
 You are professional, concise, and technically accurate. You have access to the system's state through the dashboard you are part of. When users ask about tasks or PRs, you guide them to use the specialized tabs (Task Intake, Pull Requests) while offering to help refine their technical requirements here.`;
 
 export default function AgentChat() {
+  const { activeLlm } = useAuth();
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('asc_chat_history');
     return saved ? JSON.parse(saved) : [
@@ -48,7 +50,7 @@ export default function AgentChat() {
         text: m.text
       }));
 
-      const response = await fetch('/api/chat', {
+      const response = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -100,7 +102,7 @@ export default function AgentChat() {
         <div className="agent-info">
           <span className="status-dot green" />
           <span className="agent-name">ASC Core Agent</span>
-          <span className="model-badge">{MODEL}</span>
+          <span className="model-badge">{activeLlm || 'No AI configured'}</span>
         </div>
         <button className="btn btn-secondary btn-sm" onClick={clearChat}>Clear Chat</button>
       </div>
