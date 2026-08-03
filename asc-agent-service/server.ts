@@ -150,6 +150,29 @@ async function startServer() {
     }
   });
 
+  app.put('/api/products/:id', (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const products = JSON.parse(fs.readFileSync(path.join(__dirname, 'products.json'), 'utf-8'));
+      const idx = products.findIndex((p: any) => p.id === id);
+      if (idx === -1) return res.status(404).json({ error: 'Repository not found' });
+
+      const { name, owner, repo, channel, status } = req.body;
+      products[idx] = {
+        ...products[idx],
+        ...(name !== undefined && { name }),
+        ...(owner !== undefined && { owner }),
+        ...(repo !== undefined && { repo }),
+        ...(channel !== undefined && { channel }),
+        ...(status !== undefined && { status })
+      };
+      fs.writeFileSync(path.join(__dirname, 'products.json'), JSON.stringify(products, null, 2));
+      res.json(products[idx]);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to update product registry' });
+    }
+  });
+
   app.delete('/api/products/:id', (req: Request, res: Response) => {
     try {
       const { id } = req.params;

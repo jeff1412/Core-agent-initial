@@ -173,12 +173,15 @@ export async function getPullRequests(productRepo: string, productOwner?: string
     console.warn(`[GitHub Writer] Failed to fetch PRs for ${productRepo}: ${e.message}`);
   }
 
-  // 2. Fetch Commits (Pushes) on main
+  // 2. Fetch Commits (Pushes) on default branch
   try {
+    const { data: repoInfo } = await octokit.rest.repos.get({ owner: githubOrg, repo: productRepo });
+    const defaultBranch = repoInfo.default_branch || 'main';
+
     const { data: commits } = await octokit.rest.repos.listCommits({
       owner: githubOrg,
       repo: productRepo,
-      sha: 'main',
+      sha: defaultBranch,
       per_page: 20
     });
 
@@ -189,7 +192,7 @@ export async function getPullRequests(productRepo: string, productOwner?: string
         product: productRepo,
         summary: c.commit.message.split('\n')[0],
         actor: c.author?.login || c.commit.author?.name || 'unknown',
-        branch: 'main',
+        branch: defaultBranch,
         status: 'Pushed',
         date: c.commit.author?.date ? c.commit.author.date.split('T')[0] : 'N/A',
         url: c.html_url

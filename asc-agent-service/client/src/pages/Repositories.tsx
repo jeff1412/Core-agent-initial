@@ -26,6 +26,9 @@ export default function Repositories() {
   const [repos, setRepos] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingRepo, setEditingRepo] = useState<Product | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', owner: '', repo: '', channel: '' });
   const [newRepo, setNewRepo] = useState({ name: '', owner: '', repo: '', channel: '' });
 
   const [tokenStatus, setTokenStatus] = useState<GithubTokenStatus | null>(null);
@@ -136,6 +139,36 @@ export default function Repositories() {
     }
   };
 
+  const openEditModal = (repo: Product) => {
+    setEditingRepo(repo);
+    setEditForm({
+      name: repo.name,
+      owner: repo.owner || '',
+      repo: repo.repo,
+      channel: repo.channel
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditRepo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRepo) return;
+    try {
+      const res = await apiFetch(`/api/products/${editingRepo.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm)
+      });
+      if (res.ok) {
+        setShowEditModal(false);
+        setEditingRepo(null);
+        fetchRepos();
+      }
+    } catch (err) {
+      console.error('Failed to update repo:', err);
+    }
+  };
+
   if (loading) {
     return <div className="p-4 text-muted">Loading repository registry...</div>;
   }
@@ -238,6 +271,13 @@ export default function Repositories() {
               <h3 className="card-title">{r.name}</h3>
               <div className="flex gap-2">
                  <span className={`status-dot ${r.status === 'active' ? 'green' : 'yellow'}`} title={r.status} />
+                 <button
+                  className="btn-icon"
+                  onClick={() => openEditModal(r)}
+                  title="Edit Repository"
+                >
+                  ✎
+                </button>
                  <button 
                   className="btn-icon text-error" 
                   onClick={() => handleDeleteRepo(r.id)}
@@ -267,6 +307,65 @@ export default function Repositories() {
           </div>
         ))}
       </div>
+
+      {showEditModal && editingRepo && (
+        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Edit Repository</h3>
+              <button className="btn-icon" onClick={() => setShowEditModal(false)}>✕</button>
+            </div>
+            <form onSubmit={handleEditRepo} className="modal-body">
+              <div className="form-group">
+                <label>Display Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editForm.name}
+                  onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>GitHub Owner / Org</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. asccreative"
+                  value={editForm.owner}
+                  onChange={e => setEditForm({ ...editForm, owner: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>GitHub Repo Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. meetinggenius2"
+                  value={editForm.repo}
+                  onChange={e => setEditForm({ ...editForm, repo: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Mattermost Channel</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. #dev-alerts"
+                  value={editForm.channel}
+                  onChange={e => setEditForm({ ...editForm, channel: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showAddModal && (
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}>

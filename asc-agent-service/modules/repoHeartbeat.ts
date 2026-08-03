@@ -134,9 +134,23 @@ export async function checkProductRepo(product: {
     base.defaultBranch = defaultBranch;
 
     try {
-      const branchesToCheck = [...new Set([
-        defaultBranch, 'main', 'master', 'develop', 'development', 'dev', 'staging'
-      ].filter(Boolean))];
+      // Discover actual branches from GitHub (not just hardcoded names)
+      let branchesToCheck: string[] = [defaultBranch];
+      try {
+        const { data: branchList } = await octokit.rest.repos.listBranches({
+          owner,
+          repo: product.repo,
+          per_page: 30
+        });
+        branchesToCheck = [...new Set([
+          defaultBranch,
+          ...branchList.map(b => b.name)
+        ])];
+      } catch {
+        branchesToCheck = [...new Set([
+          defaultBranch, 'main', 'master', 'develop', 'development', 'dev', 'staging'
+        ].filter(Boolean))];
+      }
 
       const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
       const seenShas = new Set<string>();
