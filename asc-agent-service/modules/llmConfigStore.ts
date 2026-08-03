@@ -25,10 +25,28 @@ export interface LlmConfig {
 }
 
 const DEFAULT_MODELS: Record<LlmProvider, string> = {
-  gemini: 'gemini-2.5-flash',
+  gemini: 'gemini-3.5-flash',
   openai: 'gpt-4o-mini',
   anthropic: 'claude-sonnet-4-20250514'
 };
+
+/** Deprecated Gemini IDs → current replacement (Google shut down 1.5/2.0/2.5 for new users). */
+const GEMINI_MODEL_MIGRATIONS: Record<string, string> = {
+  'gemini-2.5-flash': 'gemini-3.5-flash',
+  'gemini-2.5-flash-lite': 'gemini-3.5-flash-lite',
+  'gemini-2.5-pro': 'gemini-3.5-flash',
+  'gemini-2.0-flash': 'gemini-3.5-flash',
+  'gemini-2.0-flash-001': 'gemini-3.5-flash',
+  'gemini-2.0-flash-lite': 'gemini-3.5-flash-lite',
+  'gemini-2.0-flash-lite-001': 'gemini-3.5-flash-lite',
+  'gemini-1.5-pro': 'gemini-3.5-flash',
+  'gemini-1.5-flash': 'gemini-3.5-flash',
+  'gemini-1.5-flash-8b': 'gemini-3.5-flash-lite',
+};
+
+export function migrateGeminiModel(model: string): string {
+  return GEMINI_MODEL_MIGRATIONS[model] || model;
+}
 
 function envFallbackKey(provider: LlmProvider): string | null {
   if (provider === 'gemini') return process.env.GEMINI_API_KEY || null;
@@ -41,7 +59,13 @@ function readConfig(): LlmConfig {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-      return normalizeConfig(data);
+      const normalized = normalizeConfig(data);
+      const savedModel = data.providers?.gemini?.model;
+      if (savedModel && migrateGeminiModel(savedModel) !== savedModel) {
+        writeConfig(normalized);
+        console.log(`[LLM Config] Migrated Gemini model ${savedModel} → ${normalized.providers.gemini.model}`);
+      }
+      return normalized;
     }
   } catch {
     console.warn('[LLM Config] Could not read config, using defaults');
@@ -56,7 +80,7 @@ function normalizeConfig(raw: Partial<LlmConfig>): LlmConfig {
     providers: {
       gemini: {
         apiKey: providers.gemini?.apiKey || process.env.GEMINI_API_KEY || '',
-        model: providers.gemini?.model || DEFAULT_MODELS.gemini
+        model: migrateGeminiModel(providers.gemini?.model || DEFAULT_MODELS.gemini)
       },
       openai: {
         apiKey: providers.openai?.apiKey || process.env.OPENAI_API_KEY || '',
@@ -133,7 +157,9 @@ export function saveLlmConfig(update: Partial<LlmConfig>): LlmConfigStatus {
           current.providers[p].apiKey = update.providers[p].apiKey;
         }
         if (update.providers[p].model) {
-          current.providers[p].model = update.providers[p].model;
+          current.providers[p].model = p === 'gemini'
+            ? migrateGeminiModel(update.providers[p].model)
+            : update.providers[p].model;
         }
       }
     }
@@ -147,7 +173,12 @@ export function setActiveProvider(provider: LlmProvider): LlmConfigStatus {
 }
 
 export const LLM_MODEL_OPTIONS: Record<LlmProvider, string[]> = {
-  gemini: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'],
+  gemini: [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite'
+  ],
   openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
   anthropic: ['claude-sonnet-4-20250514', 'claude-3-7-sonnet-20250219', 'claude-3-5-haiku-20241022']
 };
