@@ -6,7 +6,11 @@ import './AgentChat.css';
 interface Message {
   role: 'user' | 'agent' | 'error';
   text: string;
+  uiOnly?: boolean;
 }
+
+const WELCOME_MESSAGE = 'Hello! I am the ASC Agent. I\'m ready to help you manage your software products, draft task briefs, or review pull requests. What can I do for you?';
+const CLEARED_MESSAGE = 'Chat cleared. How can I assist you now?';
 
 const SYSTEM_PROMPT = `You are the ASC Agent (Automated Software Contractor), a specialized AI engineer designed to assist with software development tasks within the ASC platform. Your primary capabilities include:
 1. Analyzing codebases and products onboarded to the platform.
@@ -22,7 +26,7 @@ export default function AgentChat() {
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('asc_chat_history');
     return saved ? JSON.parse(saved) : [
-      { role: 'agent', text: 'Hello! I am the ASC Agent. I\'m ready to help you manage your software products, draft task briefs, or review pull requests. What can I do for you?' }
+      { role: 'agent', text: WELCOME_MESSAGE, uiOnly: true }
     ];
   });
   const [input, setInput] = useState('');
@@ -45,10 +49,13 @@ export default function AgentChat() {
     setIsLoading(true);
 
     try {
-      const history = messages.filter(m => m.role !== 'error').map(m => ({
-        role: m.role as 'user' | 'agent',
-        text: m.text
-      }));
+      const history = messages
+        .filter(m => m.role !== 'error' && !m.uiOnly)
+        .filter(m => !(m.role === 'agent' && (m.text === WELCOME_MESSAGE || m.text === CLEARED_MESSAGE)))
+        .map(m => ({
+          role: m.role as 'user' | 'agent',
+          text: m.text
+        }));
 
       const response = await apiFetch('/api/chat', {
         method: 'POST',
@@ -76,7 +83,7 @@ export default function AgentChat() {
 
   const clearChat = () => {
     if (confirm('Are you sure you want to clear the chat history?')) {
-      setMessages([{ role: 'agent', text: 'Chat cleared. How can I assist you now?' }]);
+      setMessages([{ role: 'agent', text: CLEARED_MESSAGE, uiOnly: true }]);
       localStorage.removeItem('asc_chat_history');
     }
   };

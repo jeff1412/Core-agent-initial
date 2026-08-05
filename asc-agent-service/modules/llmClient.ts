@@ -188,7 +188,57 @@ function anthropicModelsToTry(model: string): string[] {
   return [...new Set([primary, ...ANTHROPIC_FALLBACK_MODELS])];
 }
 
-/** Claude 4.6+ / 5-series reject `temperature`, so it is never sent on Claude calls. */
+/** Claude Sonnet 5+ may return thinking blocks before text — extract all text blocks. */
+function extractAnthropicText(msg: Anthropic.Message): string {
+  const text = msg.content
+    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+    .trim();
+
+  if (text) return text;
+
+  const hasThinking = msg.content.some(
+    block => block.type === 'thinking' || block.type === 'redacted_thinking'
+  );
+  if (hasThinking && msg.stop_reason === 'max_tokens') {
+    throw new Error('Claude used all output tokens on internal reasoning. Please try again.');
+  }
+  if (hasThinking) {
+    throw new Error('Claude returned reasoning but no visible reply. Please try again.');
+  }
+  throw new Error('Claude returned an empty response. Please try again.');
+}
+
+/** Anthropic expects user/assistant turns; drop UI-only leading assistant messages. */
+function buildAnthropicMessages(
+  messages: ChatMessage[], userMessage: string
+): Anthropic.MessageParam[] {
+  const turns: Anthropic.MessageParam[] = messages.map(m => ({
+    role: m.role === 'user' ? 'user' as const : 'assistant' as const,
+    content: m.text
+  }));
+
+  // Drop leading assistant messages (UI greetings like "Chat cleared...")
+  while (turns.length > 0 && turns[0].role === 'assistant') {
+    turns.shift();
+  }
+
+  // Merge consecutive same-role turns (Anthropic combines them, but normalize explicitly)
+  const merged: Anthropic.MessageParam[] = [];
+  for (const turn of turns) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === turn.role) {
+      prev.content = `${prev.content}\n\n${turn.content}`;
+    } else {
+      merged.push({ ...turn });
+    }
+  }
+
+  merged.push({ role: 'user', content: userMessage });
+  return merged;
+}
+
 function formatAnthropicError(e: any): Error & { retryable?: boolean } {
   const status = e?.status || e?.statusCode;
   const msg = e?.message || String(e);
@@ -218,9 +268,7 @@ async function callAnthropicOnce(
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }]
     });
-    const block = msg.content[0];
-    if (block.type !== 'text') throw new Error('Empty Anthropic response');
-    return block.text;
+    return extractAnthropicText(msg);
   } catch (e: any) {
     throw formatAnthropicError(e);
   }
@@ -253,17 +301,9 @@ async function callAnthropicChatOnce(
       model,
       max_tokens: maxOutputTokens,
       system: systemPrompt,
-      messages: [
-        ...messages.map(m => ({
-          role: m.role === 'user' ? 'user' as const : 'assistant' as const,
-          content: m.text
-        })),
-        { role: 'user', content: userMessage }
-      ]
+      messages: buildAnthropicMessages(messages, userMessage)
     });
-    const block = msg.content[0];
-    if (block.type !== 'text') throw new Error('Empty Anthropic response');
-    return block.text;
+    return extractAnthropicText(msg);
   } catch (e: any) {
     throw formatAnthropicError(e);
   }
@@ -318,7 +358,7 @@ export async function chatWithLlm(
 
   if (provider === 'gemini') return callGeminiChat(apiKey, model, systemPrompt, messages, userMessage, 0.7, 2048);
   if (provider === 'openai') return callOpenAIChat(apiKey, model, systemPrompt, messages, userMessage, 0.7, 2048);
-  return callAnthropicChat(apiKey, model, systemPrompt, messages, userMessage, 2048);
+  return callAnthropicChat(apiKey, model, systemPrompt, messages, userMessage, 8192);
 }
 
 export function getActiveLlmLabel(): string {
