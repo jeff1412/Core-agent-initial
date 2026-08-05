@@ -188,6 +188,7 @@ function anthropicModelsToTry(model: string): string[] {
   return [...new Set([primary, ...ANTHROPIC_FALLBACK_MODELS])];
 }
 
+/** Claude 4.6+ / 5-series reject `temperature`, so it is never sent on Claude calls. */
 function formatAnthropicError(e: any): Error & { retryable?: boolean } {
   const status = e?.status || e?.statusCode;
   const msg = e?.message || String(e);
@@ -207,7 +208,7 @@ function formatAnthropicError(e: any): Error & { retryable?: boolean } {
 
 async function callAnthropicOnce(
   apiKey: string, model: string, systemPrompt: string, userPrompt: string,
-  temperature: number, maxOutputTokens: number
+  maxOutputTokens: number
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
   try {
@@ -215,8 +216,7 @@ async function callAnthropicOnce(
       model,
       max_tokens: maxOutputTokens,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-      temperature
+      messages: [{ role: 'user', content: userPrompt }]
     });
     const block = msg.content[0];
     if (block.type !== 'text') throw new Error('Empty Anthropic response');
@@ -228,12 +228,12 @@ async function callAnthropicOnce(
 
 async function callAnthropic(
   apiKey: string, model: string, systemPrompt: string, userPrompt: string,
-  temperature: number, maxOutputTokens: number
+  maxOutputTokens: number
 ): Promise<string> {
   let lastError: Error | null = null;
   for (const candidate of anthropicModelsToTry(model)) {
     try {
-      return await callAnthropicOnce(apiKey, candidate, systemPrompt, userPrompt, temperature, maxOutputTokens);
+      return await callAnthropicOnce(apiKey, candidate, systemPrompt, userPrompt, maxOutputTokens);
     } catch (e: any) {
       lastError = e;
       if (!e.retryable) throw e;
@@ -245,7 +245,7 @@ async function callAnthropic(
 
 async function callAnthropicChatOnce(
   apiKey: string, model: string, systemPrompt: string,
-  messages: ChatMessage[], userMessage: string, temperature: number, maxOutputTokens: number
+  messages: ChatMessage[], userMessage: string, maxOutputTokens: number
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
   try {
@@ -259,8 +259,7 @@ async function callAnthropicChatOnce(
           content: m.text
         })),
         { role: 'user', content: userMessage }
-      ],
-      temperature
+      ]
     });
     const block = msg.content[0];
     if (block.type !== 'text') throw new Error('Empty Anthropic response');
@@ -272,12 +271,12 @@ async function callAnthropicChatOnce(
 
 async function callAnthropicChat(
   apiKey: string, model: string, systemPrompt: string,
-  messages: ChatMessage[], userMessage: string, temperature: number, maxOutputTokens: number
+  messages: ChatMessage[], userMessage: string, maxOutputTokens: number
 ): Promise<string> {
   let lastError: Error | null = null;
   for (const candidate of anthropicModelsToTry(model)) {
     try {
-      return await callAnthropicChatOnce(apiKey, candidate, systemPrompt, messages, userMessage, temperature, maxOutputTokens);
+      return await callAnthropicChatOnce(apiKey, candidate, systemPrompt, messages, userMessage, maxOutputTokens);
     } catch (e: any) {
       lastError = e;
       if (!e.retryable) throw e;
@@ -302,7 +301,7 @@ export async function generateText(
 
   if (provider === 'gemini') return callGemini(apiKey, model, systemPrompt, userPrompt, temperature, maxOutputTokens);
   if (provider === 'openai') return callOpenAI(apiKey, model, systemPrompt, userPrompt, temperature, maxOutputTokens);
-  return callAnthropic(apiKey, model, systemPrompt, userPrompt, temperature, maxOutputTokens);
+  return callAnthropic(apiKey, model, systemPrompt, userPrompt, maxOutputTokens);
 }
 
 export async function generateCode(systemPrompt: string, userPrompt: string): Promise<string> {
@@ -319,7 +318,7 @@ export async function chatWithLlm(
 
   if (provider === 'gemini') return callGeminiChat(apiKey, model, systemPrompt, messages, userMessage, 0.7, 2048);
   if (provider === 'openai') return callOpenAIChat(apiKey, model, systemPrompt, messages, userMessage, 0.7, 2048);
-  return callAnthropicChat(apiKey, model, systemPrompt, messages, userMessage, 0.7, 2048);
+  return callAnthropicChat(apiKey, model, systemPrompt, messages, userMessage, 2048);
 }
 
 export function getActiveLlmLabel(): string {

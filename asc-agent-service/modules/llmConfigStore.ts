@@ -106,7 +106,7 @@ function readConfig(): LlmConfig {
 }
 
 function normalizeConfig(raw: Partial<LlmConfig>): LlmConfig {
-  const providers = raw.providers || {};
+  const providers: Partial<Record<LlmProvider, Partial<ProviderConfig>>> = raw.providers || {};
   return {
     activeProvider: raw.activeProvider || 'gemini',
     providers: {
