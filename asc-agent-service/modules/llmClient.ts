@@ -5,7 +5,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { getActiveLlmConfig, LlmProvider, migrateGeminiModel } from './llmConfigStore';
+import { getActiveLlmConfig, LlmProvider, migrateGeminiModel, migrateAnthropicModel } from './llmConfigStore';
 
 export interface ChatMessage {
   role: 'user' | 'agent';
@@ -181,44 +181,110 @@ async function callOpenAIChat(
   return data.choices?.[0]?.message?.content || 'No response from OpenAI.';
 }
 
-async function callAnthropic(
+const ANTHROPIC_FALLBACK_MODELS = ['claude-sonnet-5', 'claude-haiku-4-5', 'claude-sonnet-4-6'];
+
+function anthropicModelsToTry(model: string): string[] {
+  const primary = migrateAnthropicModel(model);
+  return [...new Set([primary, ...ANTHROPIC_FALLBACK_MODELS])];
+}
+
+function formatAnthropicError(e: any): Error & { retryable?: boolean } {
+  const status = e?.status || e?.statusCode;
+  const msg = e?.message || String(e);
+  let text = msg;
+  if (status === 404 || msg.includes('not_found_error') || msg.includes('model:')) {
+    text = 'Claude model unavailable. Open AI Settings, select claude-sonnet-5, then save.';
+  } else if (status === 401 || msg.includes('authentication')) {
+    text = 'Claude API key invalid. Update it in AI Settings.';
+  } else if (status === 429) {
+    text = 'Claude rate limit exceeded. Wait a moment or switch provider in AI Settings.';
+  }
+  const err = new Error(text) as Error & { retryable?: boolean; status?: number };
+  err.status = status;
+  err.retryable = status === 404;
+  return err;
+}
+
+async function callAnthropicOnce(
   apiKey: string, model: string, systemPrompt: string, userPrompt: string,
   temperature: number, maxOutputTokens: number
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model,
-    max_tokens: maxOutputTokens,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
-    temperature
-  });
-  const block = msg.content[0];
-  if (block.type !== 'text') throw new Error('Empty Anthropic response');
-  return block.text;
+  try {
+    const msg = await client.messages.create({
+      model,
+      max_tokens: maxOutputTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+      temperature
+    });
+    const block = msg.content[0];
+    if (block.type !== 'text') throw new Error('Empty Anthropic response');
+    return block.text;
+  } catch (e: any) {
+    throw formatAnthropicError(e);
+  }
+}
+
+async function callAnthropic(
+  apiKey: string, model: string, systemPrompt: string, userPrompt: string,
+  temperature: number, maxOutputTokens: number
+): Promise<string> {
+  let lastError: Error | null = null;
+  for (const candidate of anthropicModelsToTry(model)) {
+    try {
+      return await callAnthropicOnce(apiKey, candidate, systemPrompt, userPrompt, temperature, maxOutputTokens);
+    } catch (e: any) {
+      lastError = e;
+      if (!e.retryable) throw e;
+      console.warn(`[LLM] Claude ${candidate} failed, trying next model...`);
+    }
+  }
+  throw lastError || new Error('Claude request failed');
+}
+
+async function callAnthropicChatOnce(
+  apiKey: string, model: string, systemPrompt: string,
+  messages: ChatMessage[], userMessage: string, temperature: number, maxOutputTokens: number
+): Promise<string> {
+  const client = new Anthropic({ apiKey });
+  try {
+    const msg = await client.messages.create({
+      model,
+      max_tokens: maxOutputTokens,
+      system: systemPrompt,
+      messages: [
+        ...messages.map(m => ({
+          role: m.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: m.text
+        })),
+        { role: 'user', content: userMessage }
+      ],
+      temperature
+    });
+    const block = msg.content[0];
+    if (block.type !== 'text') throw new Error('Empty Anthropic response');
+    return block.text;
+  } catch (e: any) {
+    throw formatAnthropicError(e);
+  }
 }
 
 async function callAnthropicChat(
   apiKey: string, model: string, systemPrompt: string,
   messages: ChatMessage[], userMessage: string, temperature: number, maxOutputTokens: number
 ): Promise<string> {
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model,
-    max_tokens: maxOutputTokens,
-    system: systemPrompt,
-    messages: [
-      ...messages.map(m => ({
-        role: m.role === 'user' ? 'user' as const : 'assistant' as const,
-        content: m.text
-      })),
-      { role: 'user', content: userMessage }
-    ],
-    temperature
-  });
-  const block = msg.content[0];
-  if (block.type !== 'text') throw new Error('Empty Anthropic response');
-  return block.text;
+  let lastError: Error | null = null;
+  for (const candidate of anthropicModelsToTry(model)) {
+    try {
+      return await callAnthropicChatOnce(apiKey, candidate, systemPrompt, messages, userMessage, temperature, maxOutputTokens);
+    } catch (e: any) {
+      lastError = e;
+      if (!e.retryable) throw e;
+      console.warn(`[LLM] Claude chat ${candidate} failed, trying next model...`);
+    }
+  }
+  throw lastError || new Error('Claude chat request failed');
 }
 
 function ensureConfigured(provider: LlmProvider, apiKey: string): void {

@@ -27,10 +27,10 @@ export interface LlmConfig {
 const DEFAULT_MODELS: Record<LlmProvider, string> = {
   gemini: 'gemini-3.5-flash',
   openai: 'gpt-4o-mini',
-  anthropic: 'claude-sonnet-4-20250514'
+  anthropic: 'claude-sonnet-5'
 };
 
-/** Deprecated Gemini IDs → current replacement (Google shut down 1.5/2.0/2.5 for new users). */
+/** Deprecated Gemini IDs → current replacement. */
 const GEMINI_MODEL_MIGRATIONS: Record<string, string> = {
   'gemini-2.5-flash': 'gemini-3.5-flash',
   'gemini-2.5-flash-lite': 'gemini-3.5-flash-lite',
@@ -44,8 +44,34 @@ const GEMINI_MODEL_MIGRATIONS: Record<string, string> = {
   'gemini-1.5-flash-8b': 'gemini-3.5-flash-lite',
 };
 
+/** Deprecated Claude IDs → current replacement. */
+const ANTHROPIC_MODEL_MIGRATIONS: Record<string, string> = {
+  'claude-sonnet-4-20250514': 'claude-sonnet-5',
+  'claude-sonnet-4-5-20250929': 'claude-sonnet-5',
+  'claude-sonnet-4-5': 'claude-sonnet-5',
+  'claude-sonnet-4-6': 'claude-sonnet-5',
+  'claude-3-7-sonnet-20250219': 'claude-sonnet-5',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-5',
+  'claude-3-5-sonnet-latest': 'claude-sonnet-5',
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
+  'claude-3-haiku-20240307': 'claude-haiku-4-5',
+  'claude-opus-4-20250514': 'claude-opus-4-6',
+  'claude-opus-4-1-20250805': 'claude-opus-4-6',
+  'claude-opus-4-5-20251101': 'claude-opus-4-6',
+};
+
 export function migrateGeminiModel(model: string): string {
   return GEMINI_MODEL_MIGRATIONS[model] || model;
+}
+
+export function migrateAnthropicModel(model: string): string {
+  return ANTHROPIC_MODEL_MIGRATIONS[model] || model;
+}
+
+function migrateProviderModel(provider: LlmProvider, model: string): string {
+  if (provider === 'gemini') return migrateGeminiModel(model);
+  if (provider === 'anthropic') return migrateAnthropicModel(model);
+  return model;
 }
 
 function envFallbackKey(provider: LlmProvider): string | null {
@@ -60,11 +86,17 @@ function readConfig(): LlmConfig {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
       const normalized = normalizeConfig(data);
-      const savedModel = data.providers?.gemini?.model;
-      if (savedModel && migrateGeminiModel(savedModel) !== savedModel) {
-        writeConfig(normalized);
-        console.log(`[LLM Config] Migrated Gemini model ${savedModel} → ${normalized.providers.gemini.model}`);
+      let migrated = false;
+
+      for (const p of ['gemini', 'anthropic'] as LlmProvider[]) {
+        const saved = data.providers?.[p]?.model;
+        if (saved && migrateProviderModel(p, saved) !== saved) {
+          migrated = true;
+          console.log(`[LLM Config] Migrated ${p} model ${saved} → ${normalized.providers[p].model}`);
+        }
       }
+
+      if (migrated) writeConfig(normalized);
       return normalized;
     }
   } catch {
@@ -88,7 +120,7 @@ function normalizeConfig(raw: Partial<LlmConfig>): LlmConfig {
       },
       anthropic: {
         apiKey: providers.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || '',
-        model: providers.anthropic?.model || DEFAULT_MODELS.anthropic
+        model: migrateAnthropicModel(providers.anthropic?.model || DEFAULT_MODELS.anthropic)
       }
     }
   };
@@ -157,9 +189,7 @@ export function saveLlmConfig(update: Partial<LlmConfig>): LlmConfigStatus {
           current.providers[p].apiKey = update.providers[p].apiKey;
         }
         if (update.providers[p].model) {
-          current.providers[p].model = p === 'gemini'
-            ? migrateGeminiModel(update.providers[p].model)
-            : update.providers[p].model;
+          current.providers[p].model = migrateProviderModel(p, update.providers[p].model);
         }
       }
     }
@@ -180,5 +210,10 @@ export const LLM_MODEL_OPTIONS: Record<LlmProvider, string[]> = {
     'gemini-3.1-flash-lite'
   ],
   openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
-  anthropic: ['claude-sonnet-4-20250514', 'claude-3-7-sonnet-20250219', 'claude-3-5-haiku-20241022']
+  anthropic: [
+    'claude-sonnet-5',
+    'claude-haiku-4-5',
+    'claude-opus-4-6',
+    'claude-sonnet-4-6'
+  ]
 };
