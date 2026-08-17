@@ -11,3 +11,5 @@ asc-agent-service/auth-users.json
 asc-agent-service/auth-sessions.json
 asc-agent-service/llm-config.json
 asc-agent-service/task-history.json
+asc-agent-service/schedule-config.json
+asc-agent-service/code-audit-history.json

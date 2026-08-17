@@ -8,6 +8,20 @@ import { Octokit } from '@octokit/rest';
 import { getGithubToken } from './githubTokenStore';
 
 export type HeartbeatStatus = 'green' | 'yellow' | 'red';
+export type IssueCategory = 'branch' | 'pull_request' | 'ci' | 'access';
+
+export interface HeartbeatIssue {
+  category: IssueCategory;
+  message: string;
+}
+
+export interface BranchActivity {
+  name: string;
+  lastCommitDate: string;
+  daysAgo: number;
+  sha: string;
+  author: string;
+}
 
 export interface ProductHeartbeat {
   productId: string;
@@ -17,6 +31,9 @@ export interface ProductHeartbeat {
   status: HeartbeatStatus;
   reachable: boolean;
   defaultBranch: string | null;
+  branchesChecked: number;
+  branchActivity: BranchActivity[];
+  staleBranches: BranchActivity[];
   lastCommit: {
     sha: string;
     message: string;
@@ -32,19 +49,21 @@ export interface ProductHeartbeat {
     conclusion: string | null;
     runAt: string | null;
   };
-  issues: string[];
+  issues: HeartbeatIssue[];
   recommendations: string[];
   openPrs: Array<{
     number: number;
     title: string;
     author: string;
     daysOpen: number;
+    daysSinceUpdate: number;
   }>;
   commitsLast7Days: number;
 }
 
 const STALE_COMMIT_DAYS = 7;
 const STALE_PR_DAYS = 7;
+const MAX_BRANCHES = 30;
 
 type ProductCheck = Omit<ProductHeartbeat, 'status' | 'recommendations'>;
 
@@ -55,8 +74,8 @@ function daysSince(isoDate: string): number {
 
 function deriveStatus(check: ProductCheck): HeartbeatStatus {
   if (!check.reachable) return 'red';
-  if (check.issues.some(i => i.includes('CI failed') || i.includes('failed'))) return 'yellow';
-  if (check.lastCommit && check.lastCommit.daysAgo > STALE_COMMIT_DAYS) return 'yellow';
+  if (check.issues.some(i => i.category === 'ci' && i.message.includes('failed'))) return 'yellow';
+  if (check.issues.some(i => i.category === 'branch')) return 'yellow';
   if (check.stalePrCount > 0) return 'yellow';
   return 'green';
 }
@@ -66,11 +85,15 @@ function buildRecommendations(check: ProductCheck): string[] {
   if (!check.reachable) {
     recs.push('Verify the GitHub token has read access to this repository, or invite the token owner as a collaborator.');
   }
-  if (check.lastCommit && check.lastCommit.daysAgo > STALE_COMMIT_DAYS) {
-    recs.push(`Review development activity — last commit on ${check.lastCommit.branch} was ${check.lastCommit.daysAgo} days ago. Confirm if work is paused or blocked.`);
+  const branchIssue = check.issues.find(i => i.category === 'branch');
+  if (branchIssue) {
+    recs.push(`Branch activity: ${branchIssue.message}`);
+  }
+  if (check.staleBranches.length > 0) {
+    recs.push(`Review ${check.staleBranches.length} stale branch(es) with no commits in ${STALE_COMMIT_DAYS}+ days — merge or delete if obsolete.`);
   }
   if (check.stalePrCount > 0) {
-    recs.push(`Review ${check.stalePrCount} stale open PR(s) — merge, close, or request updates from authors.`);
+    recs.push(`Review ${check.stalePrCount} stale open PR(s) with no updates in ${STALE_PR_DAYS}+ days — merge, close, or request changes.`);
   }
   if (check.ci.available && check.ci.conclusion === 'failure') {
     recs.push('Investigate the latest failed CI run on GitHub Actions and fix before merging new work.');
@@ -95,6 +118,9 @@ function emptyCheck(product: { id: string; name: string; owner: string; repo: st
     repo: product.repo,
     reachable: false,
     defaultBranch: null,
+    branchesChecked: 0,
+    branchActivity: [],
+    staleBranches: [],
     lastCommit: null,
     openPrCount: 0,
     stalePrCount: 0,
@@ -116,12 +142,12 @@ export async function checkProductRepo(product: {
   const base = emptyCheck({ ...product, owner });
 
   if (!githubToken) {
-    base.issues.push('GitHub token is not configured — add one on the Repositories tab');
+    base.issues.push({ category: 'access', message: 'GitHub token is not configured — add one on the Repositories tab' });
     return { ...base, recommendations: buildRecommendations(base), status: 'red' };
   }
 
   if (!owner) {
-    base.issues.push('GitHub owner/org is not configured');
+    base.issues.push({ category: 'access', message: 'GitHub owner/org is not configured' });
     return { ...base, recommendations: buildRecommendations(base), status: 'red' };
   }
 
@@ -134,34 +160,23 @@ export async function checkProductRepo(product: {
     base.defaultBranch = defaultBranch;
 
     try {
-      // Discover actual branches from GitHub (not just hardcoded names)
       let branchesToCheck: string[] = [defaultBranch];
       try {
         const { data: branchList } = await octokit.rest.repos.listBranches({
           owner,
           repo: product.repo,
-          per_page: 30
+          per_page: MAX_BRANCHES
         });
-        branchesToCheck = [...new Set([
-          defaultBranch,
-          ...branchList.map(b => b.name)
-        ])];
+        branchesToCheck = [...new Set([defaultBranch, ...branchList.map(b => b.name)])];
       } catch {
-        branchesToCheck = [...new Set([
-          defaultBranch, 'main', 'master', 'develop', 'development', 'dev', 'staging'
-        ].filter(Boolean))];
+        branchesToCheck = [...new Set([defaultBranch, 'main', 'master', 'develop', 'development', 'dev', 'staging'].filter(Boolean))];
       }
 
+      base.branchesChecked = branchesToCheck.length;
       const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
       const seenShas = new Set<string>();
-      let latest: {
-        sha: string;
-        message: string;
-        author: string;
-        date: string;
-        daysAgo: number;
-        branch: string;
-      } | null = null;
+      const branchActivities: BranchActivity[] = [];
+      let latest: ProductCheck['lastCommit'] = null;
 
       for (const branchName of branchesToCheck) {
         try {
@@ -169,37 +184,50 @@ export async function checkProductRepo(product: {
             owner,
             repo: product.repo,
             sha: branchName,
-            per_page: 30
+            per_page: 5
           });
 
-          for (const c of commits) {
-            if (seenShas.has(c.sha)) continue;
-            seenShas.add(c.sha);
-            const d = c.commit.author?.date || c.commit.committer?.date;
+          if (commits.length === 0) continue;
+
+          const c = commits[0];
+          const date = c.commit.author?.date || c.commit.committer?.date || new Date().toISOString();
+          const daysAgo = daysSince(date);
+          const activity: BranchActivity = {
+            name: branchName,
+            lastCommitDate: date.split('T')[0],
+            daysAgo,
+            sha: c.sha.substring(0, 7),
+            author: c.author?.login || c.commit.author?.name || 'unknown'
+          };
+          branchActivities.push(activity);
+
+          for (const commit of commits) {
+            if (seenShas.has(commit.sha)) continue;
+            seenShas.add(commit.sha);
+            const d = commit.commit.author?.date || commit.commit.committer?.date;
             if (d && new Date(d).getTime() >= weekAgo) {
               base.commitsLast7Days += 1;
             }
           }
 
-          if (commits.length > 0) {
-            const c = commits[0];
-            const date = c.commit.author?.date || c.commit.committer?.date || new Date().toISOString();
-            const daysAgo = daysSince(date);
-            if (!latest || new Date(date) > new Date(latest.date)) {
-              latest = {
-                sha: c.sha.substring(0, 7),
-                message: (c.commit.message || '').split('\n')[0],
-                author: c.author?.login || c.commit.author?.name || 'unknown',
-                date,
-                daysAgo,
-                branch: branchName
-              };
-            }
+          if (!latest || new Date(date) > new Date(latest.date)) {
+            latest = {
+              sha: c.sha.substring(0, 7),
+              message: (c.commit.message || '').split('\n')[0],
+              author: activity.author,
+              date,
+              daysAgo,
+              branch: branchName
+            };
           }
         } catch {
-          // Branch may not exist — skip
+          // Branch may not exist or no access — skip
         }
       }
+
+      branchActivities.sort((a, b) => a.daysAgo - b.daysAgo);
+      base.branchActivity = branchActivities.filter(b => b.daysAgo <= STALE_COMMIT_DAYS);
+      base.staleBranches = branchActivities.filter(b => b.daysAgo > STALE_COMMIT_DAYS);
 
       if (latest) {
         base.lastCommit = {
@@ -210,14 +238,27 @@ export async function checkProductRepo(product: {
           daysAgo: latest.daysAgo,
           branch: latest.branch
         };
-        if (latest.daysAgo > STALE_COMMIT_DAYS) {
-          base.issues.push(`No commits on any tracked branch in ${latest.daysAgo} days (latest: ${latest.branch})`);
-        }
-      } else {
-        base.issues.push('No commits found on default or common branches');
+      }
+
+      const hasRecentActivity = base.commitsLast7Days > 0 || (latest && latest.daysAgo <= STALE_COMMIT_DAYS);
+
+      if (!latest) {
+        base.issues.push({ category: 'branch', message: 'No commits found on any tracked branch' });
+      } else if (!hasRecentActivity) {
+        base.issues.push({
+          category: 'branch',
+          message: `No commits on any of ${base.branchesChecked} tracked branch(es) in ${STALE_COMMIT_DAYS}+ days (latest: ${latest.branch}, ${latest.daysAgo}d ago)`
+        });
+      } else if (base.staleBranches.length > 0 && base.branchActivity.length > 0) {
+        const staleNames = base.staleBranches.slice(0, 3).map(b => b.name).join(', ');
+        const suffix = base.staleBranches.length > 3 ? ` +${base.staleBranches.length - 3} more` : '';
+        base.issues.push({
+          category: 'branch',
+          message: `${base.staleBranches.length} branch(es) with no recent activity (${staleNames}${suffix}) — active on ${latest.branch}`
+        });
       }
     } catch {
-      base.issues.push('Could not read commits across repository branches');
+      base.issues.push({ category: 'branch', message: 'Could not read commits across repository branches' });
     }
 
     try {
@@ -228,21 +269,30 @@ export async function checkProductRepo(product: {
         per_page: 100
       });
       base.openPrCount = openPrs.length;
-      base.openPrs = openPrs.slice(0, 5).map(pr => ({
-        number: pr.number,
-        title: pr.title,
-        author: pr.user?.login || 'unknown',
-        daysOpen: pr.created_at ? daysSince(pr.created_at) : 0
-      }));
+      base.openPrs = openPrs.slice(0, 5).map(pr => {
+        const created = pr.created_at ? daysSince(pr.created_at) : 0;
+        const updated = pr.updated_at ? daysSince(pr.updated_at) : created;
+        return {
+          number: pr.number,
+          title: pr.title,
+          author: pr.user?.login || 'unknown',
+          daysOpen: created,
+          daysSinceUpdate: updated
+        };
+      });
       base.stalePrCount = openPrs.filter(pr => {
-        if (!pr.created_at) return false;
-        return daysSince(pr.created_at) > STALE_PR_DAYS;
+        const activity = pr.updated_at || pr.created_at;
+        if (!activity) return false;
+        return daysSince(activity) > STALE_PR_DAYS;
       }).length;
       if (base.stalePrCount > 0) {
-        base.issues.push(`${base.stalePrCount} open PR(s) older than ${STALE_PR_DAYS} days`);
+        base.issues.push({
+          category: 'pull_request',
+          message: `${base.stalePrCount} open PR(s) with no activity in ${STALE_PR_DAYS}+ days`
+        });
       }
     } catch {
-      base.issues.push('Could not fetch open pull requests');
+      base.issues.push({ category: 'pull_request', message: 'Could not fetch open pull requests' });
     }
 
     try {
@@ -257,7 +307,7 @@ export async function checkProductRepo(product: {
         base.ci.conclusion = run.conclusion;
         base.ci.runAt = run.updated_at || run.created_at || null;
         if (run.conclusion === 'failure') {
-          base.issues.push('Latest CI workflow run failed');
+          base.issues.push({ category: 'ci', message: 'Latest CI workflow run failed' });
         }
       }
     } catch {
@@ -267,9 +317,9 @@ export async function checkProductRepo(product: {
     base.reachable = false;
     const msg = e.message || 'Unknown error';
     if (msg.includes('Not Found') || e.status === 404) {
-      base.issues.push('Repository not found or token lacks access');
+      base.issues.push({ category: 'access', message: 'Repository not found or token lacks access' });
     } else {
-      base.issues.push(`GitHub API error: ${msg}`);
+      base.issues.push({ category: 'access', message: `GitHub API error: ${msg}` });
     }
   }
 
@@ -284,4 +334,14 @@ export async function checkAllProductRepos(products: Array<{
   repo: string;
 }>): Promise<ProductHeartbeat[]> {
   return Promise.all(products.map(checkProductRepo));
+}
+
+/** Normalize legacy string issues from old reports. */
+export function normalizeIssue(issue: HeartbeatIssue | string): HeartbeatIssue {
+  if (typeof issue === 'object' && issue.category) return issue;
+  const msg = String(issue);
+  if (msg.includes('PR') || msg.includes('pull request')) return { category: 'pull_request', message: msg };
+  if (msg.includes('CI') || msg.includes('workflow')) return { category: 'ci', message: msg };
+  if (msg.includes('token') || msg.includes('access') || msg.includes('not found')) return { category: 'access', message: msg };
+  return { category: 'branch', message: msg };
 }

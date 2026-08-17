@@ -7,7 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ProductHeartbeat } from './repoHeartbeat';
+import { ProductHeartbeat, normalizeIssue } from './repoHeartbeat';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +28,9 @@ interface HeartbeatStore {
 }
 
 function normalizeProduct(raw: Partial<ProductHeartbeat> & { productId?: string; productName?: string }): ProductHeartbeat {
+  const issues = Array.isArray(raw.issues)
+    ? raw.issues.map(normalizeIssue)
+    : [];
   return {
     productId: raw.productId || '',
     productName: raw.productName || 'Unknown',
@@ -36,11 +39,14 @@ function normalizeProduct(raw: Partial<ProductHeartbeat> & { productId?: string;
     status: raw.status || 'red',
     reachable: raw.reachable ?? false,
     defaultBranch: raw.defaultBranch ?? null,
+    branchesChecked: raw.branchesChecked ?? 0,
+    branchActivity: Array.isArray(raw.branchActivity) ? raw.branchActivity : [],
+    staleBranches: Array.isArray(raw.staleBranches) ? raw.staleBranches : [],
     lastCommit: raw.lastCommit ? { ...raw.lastCommit, branch: raw.lastCommit.branch || raw.defaultBranch || 'unknown' } : null,
     openPrCount: raw.openPrCount ?? 0,
     stalePrCount: raw.stalePrCount ?? 0,
     ci: raw.ci ?? { available: false, conclusion: null, runAt: null },
-    issues: Array.isArray(raw.issues) ? raw.issues : [],
+    issues,
     recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
     openPrs: Array.isArray(raw.openPrs) ? raw.openPrs : [],
     commitsLast7Days: raw.commitsLast7Days ?? 0

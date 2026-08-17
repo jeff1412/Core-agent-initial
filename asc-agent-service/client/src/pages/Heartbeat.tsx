@@ -1,6 +1,21 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { apiFetch } from '../utils/api';
+import ScheduleSettings from '../components/ScheduleSettings';
 import './Heartbeat.css';
+import '../components/ScheduleSettings.css';
+
+interface HeartbeatIssue {
+  category: 'branch' | 'pull_request' | 'ci' | 'access';
+  message: string;
+}
+
+interface BranchActivity {
+  name: string;
+  lastCommitDate: string;
+  daysAgo: number;
+  sha: string;
+  author: string;
+}
 
 interface ProductHeartbeat {
   productId: string;
@@ -10,6 +25,9 @@ interface ProductHeartbeat {
   status: 'green' | 'yellow' | 'red';
   reachable: boolean;
   defaultBranch: string | null;
+  branchesChecked: number;
+  branchActivity: BranchActivity[];
+  staleBranches: BranchActivity[];
   lastCommit: {
     sha: string;
     message: string;
@@ -25,9 +43,9 @@ interface ProductHeartbeat {
     conclusion: string | null;
     runAt: string | null;
   };
-  issues: string[];
+  issues: HeartbeatIssue[];
   recommendations: string[];
-  openPrs: Array<{ number: number; title: string; author: string; daysOpen: number }>;
+  openPrs: Array<{ number: number; title: string; author: string; daysOpen: number; daysSinceUpdate?: number }>;
   commitsLast7Days: number;
 }
 
@@ -77,6 +95,15 @@ function commitAgeText(daysAgo: number): string {
   return `${daysAgo} days ago`;
 }
 
+function normalizeIssue(issue: HeartbeatIssue | string): HeartbeatIssue {
+  if (typeof issue === 'object' && issue.category) return issue;
+  const msg = String(issue);
+  if (msg.includes('PR') || msg.includes('pull request')) return { category: 'pull_request', message: msg };
+  if (msg.includes('CI') || msg.includes('workflow')) return { category: 'ci', message: msg };
+  if (msg.includes('token') || msg.includes('access')) return { category: 'access', message: msg };
+  return { category: 'branch', message: msg };
+}
+
 function normalizeProduct(p: Partial<ProductHeartbeat>): ProductHeartbeat {
   return {
     productId: p.productId || '',
@@ -86,11 +113,14 @@ function normalizeProduct(p: Partial<ProductHeartbeat>): ProductHeartbeat {
     status: p.status || 'red',
     reachable: p.reachable ?? false,
     defaultBranch: p.defaultBranch ?? null,
+    branchesChecked: p.branchesChecked ?? 0,
+    branchActivity: Array.isArray(p.branchActivity) ? p.branchActivity : [],
+    staleBranches: Array.isArray(p.staleBranches) ? p.staleBranches : [],
     lastCommit: p.lastCommit ?? null,
     openPrCount: p.openPrCount ?? 0,
     stalePrCount: p.stalePrCount ?? 0,
     ci: p.ci ?? { available: false, conclusion: null, runAt: null },
-    issues: Array.isArray(p.issues) ? p.issues : [],
+    issues: Array.isArray(p.issues) ? p.issues.map(normalizeIssue) : [],
     recommendations: Array.isArray(p.recommendations) ? p.recommendations : [],
     openPrs: Array.isArray(p.openPrs) ? p.openPrs : [],
     commitsLast7Days: p.commitsLast7Days ?? 0
@@ -184,6 +214,33 @@ function LoadingBar({ progress, label }: { progress: number; label: string }) {
   );
 }
 
+function IssueGroups({ issues }: { issues: HeartbeatIssue[] }) {
+  const groups: Record<string, HeartbeatIssue[]> = {
+    branch: [], pull_request: [], ci: [], access: []
+  };
+  issues.forEach(i => groups[i.category]?.push(i));
+
+  const labels: Record<string, string> = {
+    branch: 'Branch Activity',
+    pull_request: 'Pull Requests',
+    ci: 'CI / Build',
+    access: 'Access'
+  };
+
+  return (
+    <>
+      {Object.entries(groups).map(([cat, items]) =>
+        items.length > 0 ? (
+          <div key={cat} className="heartbeat-block heartbeat-block-issues">
+            <span className="heartbeat-issue-group-title">{labels[cat]}</span>
+            <ul>{items.map((issue, idx) => <li key={idx}>{issue.message}</li>)}</ul>
+          </div>
+        ) : null
+      )}
+    </>
+  );
+}
+
 function ReportDetail({ report }: { report: HeartbeatReport }) {
   const products = report.products || [];
   return (
@@ -211,6 +268,8 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
           const issues = p.issues || [];
           const recommendations = p.recommendations || [];
           const ci = p.ci || { available: false, conclusion: null, runAt: null };
+          const branchActivity = p.branchActivity || [];
+          const staleBranches = p.staleBranches || [];
           return (
           <div key={p.productId || i} className="card heartbeat-product-card slide-in" style={{ animationDelay: `${i * 60}ms` }}>
             <div className="heartbeat-product-header">
@@ -235,8 +294,12 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
                 <span className="value">{p.commitsLast7Days}</span>
               </div>
               <div className="metric">
+                <span className="label">Branches Checked</span>
+                <span className="value">{p.branchesChecked || '—'}</span>
+              </div>
+              <div className="metric">
                 <span className="label">Open PRs</span>
-                <span className="value">{p.openPrCount}{p.stalePrCount > 0 ? ` (${p.stalePrCount} stale)` : ''}</span>
+                <span className="value">{p.openPrCount}{p.stalePrCount > 0 ? ` (${p.stalePrCount} inactive)` : ''}</span>
               </div>
               <div className="metric">
                 <span className="label">CI Status</span>
@@ -250,24 +313,35 @@ function ReportDetail({ report }: { report: HeartbeatReport }) {
               <p className="heartbeat-commit-msg">"{p.lastCommit.message}" — @{p.lastCommit.author} on <span className="mono">{p.lastCommit.branch || p.defaultBranch}</span></p>
             )}
 
+            {(branchActivity.length > 0 || staleBranches.length > 0) && (
+              <div className="heartbeat-branch-list">
+                <span className="label">Branch activity</span>
+                {branchActivity.slice(0, 4).map(b => (
+                  <div key={b.name} className="heartbeat-branch-item">
+                    <span className="mono">{b.name}</span> — {commitAgeText(b.daysAgo)} ({b.sha})
+                  </div>
+                ))}
+                {staleBranches.slice(0, 3).map(b => (
+                  <div key={b.name} className="heartbeat-branch-item stale">
+                    <span className="mono">{b.name}</span> — stale ({b.daysAgo}d)
+                  </div>
+                ))}
+              </div>
+            )}
+
             {openPrs.length > 0 && (
               <div className="heartbeat-pr-list">
                 <span className="label">Open PRs</span>
                 {openPrs.map(pr => (
                   <div key={pr.number} className="heartbeat-pr-item">
                     <span className="mono">#{pr.number}</span> {pr.title}
-                    <span className="text-muted"> — @{pr.author}, {pr.daysOpen}d</span>
+                    <span className="text-muted"> — @{pr.author}, {pr.daysOpen}d open{pr.daysSinceUpdate !== undefined ? `, updated ${pr.daysSinceUpdate}d ago` : ''}</span>
                   </div>
                 ))}
               </div>
             )}
 
-            {issues.length > 0 && (
-              <div className="heartbeat-block heartbeat-block-issues">
-                <span className="heartbeat-block-title">Issues</span>
-                <ul>{issues.map((issue, idx) => <li key={idx}>{issue}</li>)}</ul>
-              </div>
-            )}
+            {issues.length > 0 && <IssueGroups issues={issues} />}
 
             {recommendations.length > 0 && (
               <div className="heartbeat-block heartbeat-block-recs">
@@ -424,6 +498,12 @@ export default function Heartbeat() {
       </div>
 
       {error && <div className="heartbeat-error slide-in">{error}</div>}
+
+      <ScheduleSettings
+        job="heartbeat"
+        title="Heartbeat Schedule"
+        description="Automatically run repo health checks on selected days. Changes apply immediately without restart."
+      />
 
       {running && <LoadingBar progress={progress} label={progressLabel} />}
 

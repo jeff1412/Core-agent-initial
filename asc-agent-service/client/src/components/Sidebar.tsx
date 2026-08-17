@@ -14,6 +14,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/intake',      icon: '✦', label: 'Task Intake' },
   { to: '/pull-requests', icon: '⎇', label: 'Pushes & PRs' },
   { to: '/repositories', icon: '⚙', label: 'Repositories' },
+  { to: '/code-audit',   icon: '◉', label: 'Code Audit' },
   { to: '/ai-settings', icon: '✧', label: 'AI Settings' },
 ];
 

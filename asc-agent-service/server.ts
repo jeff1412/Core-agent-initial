@@ -30,7 +30,10 @@ import { login, logout, getSessionUser, changePassword } from './modules/authSto
 import { authMiddleware, SESSION_COOKIE_OPTIONS } from './modules/authMiddleware';
 import { getLlmConfigStatus, saveLlmConfig, setActiveProvider, LLM_MODEL_OPTIONS, LlmProvider } from './modules/llmConfigStore';
 import { createTask, getTaskHistory, getTaskById } from './modules/taskStore';
-import cron from 'node-cron';
+import { runCodeAudit, isCodeAuditRunning } from './modules/codeAuditRunner';
+import { getLatestCodeAuditReport, getCodeAuditHistory, getCodeAuditReportById } from './modules/codeAuditStore';
+import { getScheduleStatus, saveJobSchedule, ScheduleJob } from './modules/scheduleStore';
+import { refreshSchedule, initAllSchedules } from './modules/scheduleManager';
 
 async function startServer() {
   const app = express();
@@ -303,6 +306,65 @@ async function startServer() {
     }
   });
 
+  // Schedule settings API
+  app.get('/api/schedules', (req: Request, res: Response) => {
+    res.json(getScheduleStatus());
+  });
+
+  app.post('/api/schedules/:job', (req: Request, res: Response) => {
+    const job = req.params.job as ScheduleJob;
+    if (job !== 'heartbeat' && job !== 'codeAudit') {
+      return res.status(400).json({ error: 'Invalid schedule job' });
+    }
+    try {
+      const { enabled, daysOfWeek, hour, minute } = req.body;
+      saveJobSchedule(job, { enabled, daysOfWeek, hour, minute });
+      const cronExpr = refreshSchedule(job);
+      res.json({ ...getScheduleStatus(), updated: job, cron: cronExpr });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Code Audit API
+  app.get('/api/code-audit/latest', (req: Request, res: Response) => {
+    const latest = getLatestCodeAuditReport();
+    res.json(latest || { empty: true });
+  });
+
+  app.get('/api/code-audit/history', (req: Request, res: Response) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 30, 30);
+    const history = getCodeAuditHistory(limit).map((r: { id: string; generatedAt: string; trigger: string; products: Array<{ filesScanned: number }> }) => ({
+      id: r.id,
+      generatedAt: r.generatedAt,
+      trigger: r.trigger,
+      summary: {
+        products: r.products.length,
+        filesScanned: r.products.reduce((n: number, p: { filesScanned: number }) => n + p.filesScanned, 0)
+      }
+    }));
+    res.json(history);
+  });
+
+  app.get('/api/code-audit/:id', (req: Request, res: Response) => {
+    const report = getCodeAuditReportById(req.params.id as string);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    res.json(report);
+  });
+
+  app.post('/api/code-audit/run', async (req: Request, res: Response) => {
+    if (isCodeAuditRunning()) {
+      return res.status(409).json({ error: 'A code audit is already in progress.' });
+    }
+    try {
+      const report = await runCodeAudit('manual');
+      res.json(report);
+    } catch (e: any) {
+      console.error('[Code Audit API] Error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Task Intake API (Web Form)
   app.post('/api/intake', async (req: Request, res: Response) => {
     const { product, description, type, taskType, priority, acceptanceCriteria, doNotTouch, referenceFiles } = req.body;
@@ -376,19 +438,7 @@ async function startServer() {
 
   app.listen(PORT, () => {
     console.log(`\n✅ WEBSITE IS LIVE AT: http://localhost:${PORT}\n`);
-
-    const cronExpr = process.env.HEARTBEAT_REPORT_CRON || '0 9 * * 1';
-    if (cron.validate(cronExpr)) {
-      cron.schedule(cronExpr, () => {
-        if (isHeartbeatRunning()) return;
-        runHeartbeat('scheduled').catch(err =>
-          console.error('[Heartbeat Cron] Failed:', err.message)
-        );
-      });
-      console.log(`[Heartbeat] Scheduled reports: ${cronExpr}`);
-    } else {
-      console.warn(`[Heartbeat] Invalid HEARTBEAT_REPORT_CRON: ${cronExpr}`);
-    }
+    initAllSchedules();
   });
 }
 

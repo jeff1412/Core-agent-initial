@@ -76,7 +76,7 @@ export function fallbackReport(products: ProductHeartbeat[]): string {
 
     report += `**Issues Identified:**\n`;
     if (p.issues.length === 0) report += `- None detected\n`;
-    else p.issues.forEach(i => { report += `- ${i}\n`; });
+    else p.issues.forEach(i => { report += `- ${typeof i === 'string' ? i : i.message}\n`; });
 
     report += `\n**Recommendations:**\n`;
     p.recommendations.forEach(r => { report += `- ${r}\n`; });
