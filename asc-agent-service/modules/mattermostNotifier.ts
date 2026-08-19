@@ -117,3 +117,17 @@ export async function postMissingFields(rootPostId: string, channelId: string, m
   };
   return postToMattermost(payload);
 }
+
+/** Post password reset link to alerts channel (optional — skipped if Mattermost not configured). */
+export async function postPasswordResetLink(email: string, resetUrl: string): Promise<void> {
+  const channelId = process.env.MATTERMOST_ALERTS_CHANNEL_ID;
+  if (!channelId) {
+    console.warn('[Notifier] MATTERMOST_ALERTS_CHANNEL_ID not set — password reset link not posted to Mattermost');
+    return;
+  }
+  const payload: MattermostPayload = {
+    channel_id: channelId,
+    message: `### 🔐 Password Reset Requested\n**User:** ${email}\n**Reset link (expires in 1 hour):** ${resetUrl}`,
+  };
+  await postToMattermost(payload);
+}

@@ -9,7 +9,9 @@ import { getSessionUser } from './authStore';
 
 const PUBLIC_API_PATHS = new Set([
   '/api/health',
-  '/api/auth/login'
+  '/api/auth/login',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password'
 ]);
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {

@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import HealthStatus from './pages/HealthStatus';
 import Heartbeat from './pages/Heartbeat';
 import TaskIntake from './pages/TaskIntake';
@@ -54,6 +55,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/*" element={<ProtectedShell />} />
         </Routes>
       </AuthProvider>

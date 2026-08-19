@@ -14,7 +14,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const USERS_PATH = path.join(__dirname, '..', 'auth-users.json');
 const SESSIONS_PATH = path.join(__dirname, '..', 'auth-sessions.json');
+const RESET_TOKENS_PATH = path.join(__dirname, '..', 'auth-reset-tokens.json');
 const SESSION_DAYS = 7;
+const RESET_TOKEN_HOURS = 1;
 
 export interface AuthUser {
   email: string;
@@ -25,6 +27,11 @@ export interface AuthUser {
 interface SessionRecord {
   email: string;
   createdAt: string;
+  expiresAt: string;
+}
+
+interface ResetTokenRecord {
+  email: string;
   expiresAt: string;
 }
 
@@ -122,4 +129,79 @@ export function changePassword(email: string, currentPassword: string, newPasswo
   }
   users[idx].passwordHash = bcrypt.hashSync(newPassword, 10);
   writeUsers(users);
+}
+
+function readResetTokens(): Record<string, ResetTokenRecord> {
+  try {
+    if (fs.existsSync(RESET_TOKENS_PATH)) {
+      return JSON.parse(fs.readFileSync(RESET_TOKENS_PATH, 'utf-8'));
+    }
+  } catch {
+    console.warn('[Auth] Could not read reset tokens file');
+  }
+  return {};
+}
+
+function writeResetTokens(tokens: Record<string, ResetTokenRecord>): void {
+  fs.writeFileSync(RESET_TOKENS_PATH, JSON.stringify(tokens, null, 2));
+}
+
+function cleanExpiredResetTokens(tokens: Record<string, ResetTokenRecord>): Record<string, ResetTokenRecord> {
+  const now = Date.now();
+  const cleaned: Record<string, ResetTokenRecord> = {};
+  for (const [token, record] of Object.entries(tokens)) {
+    if (new Date(record.expiresAt).getTime() > now) cleaned[token] = record;
+  }
+  return cleaned;
+}
+
+/** Create a time-limited reset token. Returns null if email not registered. */
+export function createPasswordResetToken(email: string): string | null {
+  const normalized = email.trim().toLowerCase();
+  const users = readUsers();
+  const user = users.find(u => u.email.toLowerCase() === normalized);
+  if (!user) return null;
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokens = cleanExpiredResetTokens(readResetTokens());
+  tokens[token] = {
+    email: user.email,
+    expiresAt: new Date(Date.now() + RESET_TOKEN_HOURS * 60 * 60 * 1000).toISOString()
+  };
+  writeResetTokens(tokens);
+  return token;
+}
+
+export function validatePasswordResetToken(token: string): { email: string } | null {
+  if (!token) return null;
+  const tokens = cleanExpiredResetTokens(readResetTokens());
+  const record = tokens[token];
+  if (!record) return null;
+  if (new Date(record.expiresAt).getTime() <= Date.now()) {
+    delete tokens[token];
+    writeResetTokens(tokens);
+    return null;
+  }
+  return { email: record.email };
+}
+
+export function resetPasswordWithToken(token: string, newPassword: string): void {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error('Password must be at least 6 characters');
+  }
+  const tokens = cleanExpiredResetTokens(readResetTokens());
+  const record = tokens[token];
+  if (!record || new Date(record.expiresAt).getTime() <= Date.now()) {
+    throw new Error('Reset link is invalid or has expired');
+  }
+
+  const users = readUsers();
+  const idx = users.findIndex(u => u.email === record.email);
+  if (idx === -1) throw new Error('User not found');
+
+  users[idx].passwordHash = bcrypt.hashSync(newPassword, 10);
+  writeUsers(users);
+
+  delete tokens[token];
+  writeResetTokens(tokens);
 }

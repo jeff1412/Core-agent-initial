@@ -26,7 +26,8 @@ import { chatWithLlm, ChatMessage, getActiveLlmLabel } from './modules/llmClient
 import { runHeartbeat, isHeartbeatRunning } from './modules/heartbeatRunner';
 import { getLatestReport, getReportHistory, getReportById } from './modules/heartbeatStore';
 import { getGithubTokenStatusAsync, saveGithubToken, clearGithubToken } from './modules/githubTokenStore';
-import { login, logout, getSessionUser, changePassword } from './modules/authStore';
+import { login, logout, getSessionUser, changePassword, createPasswordResetToken, validatePasswordResetToken, resetPasswordWithToken } from './modules/authStore';
+import { postPasswordResetLink } from './modules/mattermostNotifier';
 import { authMiddleware, SESSION_COOKIE_OPTIONS } from './modules/authMiddleware';
 import { getLlmConfigStatus, saveLlmConfig, setActiveProvider, LLM_MODEL_OPTIONS, LlmProvider } from './modules/llmConfigStore';
 import { createTask, getTaskHistory, getTaskById } from './modules/taskStore';
@@ -60,6 +61,63 @@ async function startServer() {
       res.json({ user: result.user });
     } catch (e: any) {
       res.status(401).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/auth/forgot-password', async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      const token = createPasswordResetToken(email);
+      let resetUrl: string | null = null;
+      const mattermostAlerts = !!process.env.MATTERMOST_ALERTS_CHANNEL_ID;
+
+      if (token) {
+        const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+        resetUrl = `${baseUrl.replace(/\/$/, '')}/reset-password?token=${token}`;
+        if (mattermostAlerts) {
+          await postPasswordResetLink(email.trim().toLowerCase(), resetUrl).catch(err =>
+            console.warn('[Auth] Mattermost reset notification failed:', err.message)
+          );
+        } else {
+          console.log(`[Auth] Password reset link for ${email}: ${resetUrl}`);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: mattermostAlerts
+          ? 'If that email is registered, a reset link has been sent to the Mattermost alerts channel.'
+          : 'If that email is registered, use the reset link below (Mattermost alerts not configured).',
+        ...(resetUrl && !mattermostAlerts ? { resetUrl } : {})
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/auth/reset-password', (req: Request, res: Response) => {
+    const token = req.query.token as string;
+    const valid = validatePasswordResetToken(token);
+    if (!valid) {
+      return res.status(400).json({ valid: false, error: 'Reset link is invalid or has expired' });
+    }
+    res.json({ valid: true, email: valid.email.replace(/(.{2}).*(@.*)/, '$1***$2') });
+  });
+
+  app.post('/api/auth/reset-password', (req: Request, res: Response) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: 'Token and new password are required' });
+      }
+      resetPasswordWithToken(token, newPassword);
+      res.json({ success: true, message: 'Password updated. You can sign in now.' });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
   });
 
