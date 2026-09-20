@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../utils/api';
 import './AgentChat.css';
+import '../utils/chatMarkdown.css';
+import { renderChatMarkdown } from '../utils/renderChatMarkdown';
 
 interface Message {
   role: 'user' | 'agent' | 'error';
@@ -88,21 +90,6 @@ export default function AgentChat() {
     }
   };
 
-  const formatMessage = (text: string) => {
-    // 1. Handle bolding: **text**
-    // 2. Handle inline code: `text`
-    const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
-    return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i}>{part.slice(2, -2)}</strong>;
-      }
-      if (part.startsWith('`') && part.endsWith('`')) {
-        return <code key={i}>{part.slice(1, -1)}</code>;
-      }
-      return part;
-    });
-  };
-
   return (
     <div className="agent-chat fade-in">
       <div className="chat-header">
@@ -116,8 +103,8 @@ export default function AgentChat() {
 
       <div className="chat-messages" ref={scrollRef}>
         {messages.map((m, i) => (
-          <div key={i} className={`message ${m.role} slide-in`}>
-            {formatMessage(m.text)}
+          <div key={i} className={`message ${m.role} slide-in${m.role === 'agent' ? ' message--rich' : ''}`}>
+            {m.role === 'user' ? m.text : renderChatMarkdown(m.text)}
           </div>
         ))}
         {isLoading && (

@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../utils/api';
 import './VersionInsights.css';
 import './AgentChat.css';
+import '../utils/chatMarkdown.css';
+import { renderChatMarkdown } from '../utils/renderChatMarkdown';
 
 interface ProductOption {
   id: string;
@@ -289,7 +291,12 @@ export default function VersionInsights() {
           </div>
           <div className="chat-messages">
             {messages.map((m, i) => (
-              <div key={i} className={`message ${m.role}`}>{m.text}</div>
+              <div
+                key={i}
+                className={`message ${m.role}${m.role === 'agent' || m.role === 'error' ? ' message--rich' : ''}`}
+              >
+                {m.role === 'user' ? m.text : renderChatMarkdown(m.text)}
+              </div>
             ))}
             {chatLoading && <div className="message agent">Thinking…</div>}
           </div>
