@@ -7,7 +7,12 @@
     "path": "../../meetinggenius2",
     "channel": "#mg-dev",
     "status": "active",
-    "onboarded": "2026-04-17"
+    "onboarded": "2026-04-17",
+    "versionChangelog": {
+      "enabled": true,
+      "deployBranch": "main",
+      "metadataFile": "meetinggenius.json"
+    }
   },
   {
     "id": "janus",
@@ -17,6 +22,10 @@
     "path": "../../janus",
     "channel": "#janus-dev",
     "status": "active",
-    "onboarded": "2026-04-17"
+    "onboarded": "2026-04-17",
+    "versionChangelog": {
+      "enabled": false,
+      "comingSoon": true
+    }
   }
 ]

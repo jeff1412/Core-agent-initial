@@ -10,13 +10,14 @@ import { fileURLToPath } from 'url';
 import { scanAllProductCode } from './codeAuditScanner';
 import { generateCodeAuditReport, fallbackCodeAuditReport } from './codeAuditReporter';
 import { saveCodeAuditReport, CodeAuditReport } from './codeAuditStore';
+import { buildAuditVersionContext, OnboardedProduct } from './productVersionService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let running = false;
 
-function loadProducts(): Array<{ id: string; name: string; owner?: string; repo: string }> {
+function loadProducts(): OnboardedProduct[] {
   return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'products.json'), 'utf-8'));
 }
 
@@ -31,6 +32,7 @@ export async function runCodeAudit(trigger: 'manual' | 'scheduled' = 'manual'): 
   try {
     const products = loadProducts();
     const snapshots = await scanAllProductCode(products);
+    const versionContext = await buildAuditVersionContext(products, 2);
 
     let aiReport: string | null = null;
     let aiError: string | null = null;
@@ -41,7 +43,7 @@ export async function runCodeAudit(trigger: 'manual' | 'scheduled' = 'manual'): 
       aiError = 'No source files could be scanned';
     } else {
       try {
-        aiReport = await generateCodeAuditReport(snapshots);
+        aiReport = await generateCodeAuditReport(snapshots, versionContext);
       } catch (e: any) {
         aiError = e.message;
         aiReport = fallbackCodeAuditReport(snapshots);

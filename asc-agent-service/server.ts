@@ -35,6 +35,11 @@ import { runCodeAudit, isCodeAuditRunning } from './modules/codeAuditRunner';
 import { getLatestCodeAuditReport, getCodeAuditHistory, getCodeAuditReportById } from './modules/codeAuditStore';
 import { getScheduleStatus, saveJobSchedule, ScheduleJob } from './modules/scheduleStore';
 import { refreshSchedule, initAllSchedules } from './modules/scheduleManager';
+import {
+  getVersionCapableProducts,
+  getProductChangelog
+} from './modules/productVersionService';
+import { compareProductVersions, formatCompareForLlm } from './modules/versionCompare';
 
 async function startServer() {
   const app = express();
@@ -381,6 +386,82 @@ async function startServer() {
       res.json({ ...getScheduleStatus(), updated: job, cron: cronExpr });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Product version changelog (MeetingGenius-aligned monthly releases)
+  app.get('/api/product-versions/products', (req: Request, res: Response) => {
+    res.json(getVersionCapableProducts());
+  });
+
+  app.get('/api/product-versions/:productId/changelog', async (req: Request, res: Response) => {
+    try {
+      const refresh = req.query.refresh === '1';
+      const payload = await getProductChangelog(req.params.productId as string, refresh);
+      res.json(payload);
+    } catch (e: any) {
+      const status = e.message?.includes('coming soon') ? 501 : 400;
+      res.status(status).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/product-versions/:productId/compare', async (req: Request, res: Response) => {
+    try {
+      const { versionA, versionB, monthKeyA, monthKeyB } = req.body || {};
+      const result = await compareProductVersions(
+        req.params.productId as string,
+        { version: versionA, monthKey: monthKeyA },
+        { version: versionB, monthKey: monthKeyB }
+      );
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/product-versions/:productId/chat', async (req: Request, res: Response) => {
+    try {
+      const { messages, userMessage, versionA, versionB, monthKeyA, monthKeyB } = req.body || {};
+      if (!userMessage || typeof userMessage !== 'string') {
+        return res.status(400).json({ error: 'userMessage is required' });
+      }
+
+      const productId = req.params.productId as string;
+      const compare = await compareProductVersions(
+        productId,
+        { version: versionA, monthKey: monthKeyA },
+        { version: versionB, monthKey: monthKeyB }
+      );
+
+      const changelog = await getProductChangelog(productId);
+      const systemPrompt = `You are the ASC Agent version analyst for ASC Creative Ltd.
+You answer questions about monthly product releases using ONLY the structured changelog comparison and version metadata provided.
+Rules:
+- Base answers on commit changelog entries (features/fixes), not on imagined code diffs.
+- When asked about "missing" features, refer to features present in Version A's cycle that do not appear in Version B's cycle (by commit subject/scope matching).
+- When asked what's new, use newFeaturesInB and related lists.
+- Be clear which version labels you mean (${compare.versionA.version} vs ${compare.versionB.version}).
+- If uncertain, say changelog evidence is inconclusive.
+- Professional, concise markdown.`;
+
+      const contextBlock = formatCompareForLlm(compare);
+      const versionSummaries = changelog.versions
+        .filter(v => v.monthKey === compare.versionA.monthKey || v.monthKey === compare.versionB.monthKey)
+        .map(v => ({
+          version: v.version,
+          title: v.title,
+          description: v.description,
+          stats: v.stats
+        }));
+
+      const augmentedPrompt = `${systemPrompt}\n\n---\nVersion metadata:\n${JSON.stringify(versionSummaries, null, 2)}\n\n---\n${contextBlock}`;
+
+      const history: ChatMessage[] = Array.isArray(messages) ? messages : [];
+      const text = await chatWithLlm(augmentedPrompt, history, userMessage);
+      res.json({ text, model: getActiveLlmLabel(), compareSummary: compare.summary });
+    } catch (e: any) {
+      console.error('[Version Chat API] Error:', e.message);
+      res.status(500).json({ error: e.message });
     }
   });
 

@@ -11,6 +11,7 @@ import PullRequests from './pages/PullRequests';
 import Repositories from './pages/Repositories';
 import AgentChat from './pages/AgentChat';
 import CodeAudit from './pages/CodeAudit';
+import VersionInsights from './pages/VersionInsights';
 import AISettings from './pages/AISettings';
 import './App.css';
 
@@ -40,6 +41,7 @@ function ProtectedShell() {
             <Route path="/pull-requests" element={<PullRequests />} />
             <Route path="/repositories"  element={<Repositories />} />
             <Route path="/code-audit"    element={<CodeAudit />} />
+            <Route path="/version-insights" element={<VersionInsights />} />
             <Route path="/ai-settings"   element={<AISettings />} />
             <Route path="*"              element={<Navigate to="/chat" replace />} />
           </Routes>

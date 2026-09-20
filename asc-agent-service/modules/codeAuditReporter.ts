@@ -43,7 +43,17 @@ Systemic issues seen in multiple codebases.
 ## Priority Actions
 Top 3-5 fixes ranked by impact.`;
 
-export async function generateCodeAuditReport(snapshots: ProductCodeSnapshot[]): Promise<string> {
+const VERSION_CONTEXT_SECTION = `
+
+When release cycle context is provided, add a section **Release continuity (changelog)** after Executive Summary:
+- Note recent monthly versions (same semantics as MeetingGenius System Version & Changelog).
+- Call out themes from recent features/fixes that relate to code areas in the scan.
+- Flag possible gaps if changelog suggests features in an older cycle with no follow-up fixes in newer cycles (changelog-only; do not invent code regressions).`;
+
+export async function generateCodeAuditReport(
+  snapshots: ProductCodeSnapshot[],
+  versionContext?: Record<string, unknown>
+): Promise<string> {
   const payload = snapshots.map(s => ({
     product: s.productName,
     repo: `${s.owner}/${s.repo}`,
@@ -53,8 +63,17 @@ export async function generateCodeAuditReport(snapshots: ProductCodeSnapshot[]):
     files: s.files.map(f => ({ path: f.path, language: f.language, excerpt: f.excerpt }))
   }));
 
-  const userPrompt = `Generate a code audit report. Date: ${new Date().toISOString()}.\n\nScanned code:\n${JSON.stringify(payload, null, 2)}`;
-  return generateText(SYSTEM_PROMPT, userPrompt, 0.3, 4096);
+  const systemPrompt =
+    versionContext && Object.keys(versionContext).length > 0
+      ? SYSTEM_PROMPT + VERSION_CONTEXT_SECTION
+      : SYSTEM_PROMPT;
+
+  let userPrompt = `Generate a code audit report. Date: ${new Date().toISOString()}.\n\nScanned code:\n${JSON.stringify(payload, null, 2)}`;
+  if (versionContext && Object.keys(versionContext).length > 0) {
+    userPrompt += `\n\nRecent release cycles (last 2 months, changelog from deploy branch):\n${JSON.stringify(versionContext, null, 2)}`;
+  }
+
+  return generateText(systemPrompt, userPrompt, 0.3, 4096);
 }
 
 export function fallbackCodeAuditReport(snapshots: ProductCodeSnapshot[]): string {

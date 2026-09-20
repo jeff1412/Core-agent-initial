@@ -1,0 +1,22 @@
+{
+  "2026-09": {
+    "version": "v1.3.0",
+    "title": "Privacy & LLM Model Router Enhancements",
+    "description": "Introduced sensitivity-based LLM model router for strict privacy compliance, along with telemetry monitoring optimizations."
+  },
+  "2026-08": {
+    "version": "v1.2.0",
+    "title": "Email Integrations, Live Speech Dictation & Automations",
+    "description": "Integrated Outlook & Gmail multi-mailbox IMAP listeners, zero-latency speech recognition flush, and live topic allocation."
+  },
+  "2026-07": {
+    "version": "v1.1.0",
+    "title": "Realtime Transcripts & Multi-Device Sync",
+    "description": "Added multi-device WebSocket audio sync, live transcript deduplication, and export to DOCX/PDF."
+  },
+  "2026-06": {
+    "version": "v1.0.0",
+    "title": "Core Platform Architecture & Janus Integrations",
+    "description": "Initial platform release featuring Janus webhook synchronization, role-based security, and PDF minutes ingestion."
+  }
+}

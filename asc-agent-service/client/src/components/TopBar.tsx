@@ -16,6 +16,7 @@ const PAGE_TITLES: Record<string, PageTitle> = {
   '/pull-requests': { title: 'Pull Requests',   subtitle: 'All Draft PRs created by the agent' },
   '/repositories':  { title: 'Repository Management', subtitle: 'Manage onboarded GitHub repositories' },
   '/code-audit':    { title: 'Code Audit',      subtitle: 'AI review of source files inside repositories' },
+  '/version-insights': { title: 'Version Insights', subtitle: 'Monthly release compare (MeetingGenius changelog)' },
   '/ai-settings':   { title: 'AI Settings',     subtitle: 'Configure GPT, Gemini, and Claude' },
 };
 

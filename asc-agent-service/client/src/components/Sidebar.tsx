@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/pull-requests', icon: '⎇', label: 'Pushes & PRs' },
   { to: '/repositories', icon: '⚙', label: 'Repositories' },
   { to: '/code-audit',   icon: '◉', label: 'Code Audit' },
+  { to: '/version-insights', icon: '⧉', label: 'Version Insights' },
   { to: '/ai-settings', icon: '✧', label: 'AI Settings' },
 ];
 

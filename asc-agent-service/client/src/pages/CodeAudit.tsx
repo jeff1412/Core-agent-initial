@@ -211,7 +211,10 @@ export default function CodeAudit() {
       <div className="page-header-actions">
         <div>
           <h2 className="page-title">Code Audit</h2>
-          <p className="text-muted">Scans actual source files inside repos and generates AI code quality reviews.</p>
+          <p className="text-muted">
+            Scans actual source files inside repos and generates AI code quality reviews.
+            MeetingGenius audits include the last 2 monthly release cycles from <span className="mono">main</span> (same as MG staging deploy).
+          </p>
         </div>
         <button className="btn btn-primary" onClick={handleRun} disabled={running}>
           {running ? 'Auditing...' : 'Run Code Audit Now'}
