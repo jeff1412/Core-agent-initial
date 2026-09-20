@@ -39,7 +39,8 @@ import {
   getVersionCapableProducts,
   getProductChangelog
 } from './modules/productVersionService';
-import { compareProductVersions, formatCompareForLlm } from './modules/versionCompare';
+import { compareProductVersions, compareProductVersionsFull, formatCompareForLlm } from './modules/versionCompare';
+import { buildVersionCodeContext, formatCodeContextForLlm } from './modules/versionCodeContext';
 
 async function startServer() {
   const app = express();
@@ -427,24 +428,29 @@ async function startServer() {
       }
 
       const productId = req.params.productId as string;
-      const compare = await compareProductVersions(
+      const { compare, changelog, groupA, groupB } = await compareProductVersionsFull(
         productId,
         { version: versionA, monthKey: monthKeyA },
         { version: versionB, monthKey: monthKeyB }
       );
 
-      const changelog = await getProductChangelog(productId);
+      const codeContext = await buildVersionCodeContext(changelog, compare, groupA, groupB);
+
       const systemPrompt = `You are the ASC Agent version analyst for ASC Creative Ltd.
-You answer questions about monthly product releases using ONLY the structured changelog comparison and version metadata provided.
+You answer questions about monthly product releases using the changelog comparison AND GitHub code evidence below.
 Rules:
-- Base answers on commit changelog entries (features/fixes), not on imagined code diffs.
-- When asked about "missing" features, refer to features present in Version A's cycle that do not appear in Version B's cycle (by commit subject/scope matching).
-- When asked what's new, use newFeaturesInB and related lists.
+- Distinguish two meanings of "missing":
+  1) Changelog missing: feat commit in Version A's month with no matching subject/scope in Version B's month (featuresInANotInB).
+  2) Code missing: paths from that feat commit are absent at Version B tip (pathsMissingAtVersionB in featureCodeChecks).
+- When the user asks about "code" or exact features removed from the product, use featureCodeChecks first.
+- If all paths for a feat are still present at Version B tip, say the feature code likely remains even though B had no new commit for it.
+- Only list a feature as "removed from codebase" when pathsMissingAtVersionB covers the meaningful files or compare evidence supports removal.
+- When asked what's new, use newFeaturesInB.
 - Be clear which version labels you mean (${compare.versionA.version} vs ${compare.versionB.version}).
-- If uncertain, say changelog evidence is inconclusive.
-- Professional, concise markdown.`;
+- Professional, concise markdown; cite commit hashes and file paths when discussing code.`;
 
       const contextBlock = formatCompareForLlm(compare);
+      const codeBlock = formatCodeContextForLlm(codeContext);
       const versionSummaries = changelog.versions
         .filter(v => v.monthKey === compare.versionA.monthKey || v.monthKey === compare.versionB.monthKey)
         .map(v => ({
@@ -454,7 +460,7 @@ Rules:
           stats: v.stats
         }));
 
-      const augmentedPrompt = `${systemPrompt}\n\n---\nVersion metadata:\n${JSON.stringify(versionSummaries, null, 2)}\n\n---\n${contextBlock}`;
+      const augmentedPrompt = `${systemPrompt}\n\n---\nVersion metadata:\n${JSON.stringify(versionSummaries, null, 2)}\n\n---\n${contextBlock}\n\n---\n${codeBlock}`;
 
       const history: ChatMessage[] = Array.isArray(messages) ? messages : [];
       const text = await chatWithLlm(augmentedPrompt, history, userMessage);

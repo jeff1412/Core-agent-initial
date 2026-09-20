@@ -169,7 +169,7 @@ export default function VersionInsights() {
         <div>
           <h2 className="page-title">Version Insights</h2>
           <p className="text-muted">
-            Monthly release cycles aligned with MeetingGenius changelog (deploy branch: main). Changelog-only compare — no code diff.
+            Monthly releases aligned with MeetingGenius changelog (main). Compare uses commit messages plus GitHub file checks at the newer version tip.
           </p>
         </div>
       </div>

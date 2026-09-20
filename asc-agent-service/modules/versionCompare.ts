@@ -117,11 +117,27 @@ export function compareVersionGroups(
   };
 }
 
+export interface VersionCompareBundle {
+  compare: VersionCompareResult;
+  changelog: ProductChangelogPayload;
+  groupA: MonthlyVersionGroup;
+  groupB: MonthlyVersionGroup;
+}
+
 export async function compareProductVersions(
   productId: string,
   selectorA: { monthKey?: string; version?: string },
   selectorB: { monthKey?: string; version?: string }
 ): Promise<VersionCompareResult> {
+  const bundle = await compareProductVersionsFull(productId, selectorA, selectorB);
+  return bundle.compare;
+}
+
+export async function compareProductVersionsFull(
+  productId: string,
+  selectorA: { monthKey?: string; version?: string },
+  selectorB: { monthKey?: string; version?: string }
+): Promise<VersionCompareBundle> {
   const changelog = await getProductChangelog(productId);
   const groupA = findVersionGroup(changelog, selectorA);
   const groupB = findVersionGroup(changelog, selectorB);
@@ -136,7 +152,12 @@ export async function compareProductVersions(
     throw new Error('Select two different release cycles to compare.');
   }
 
-  return compareVersionGroups(changelog, groupA, groupB);
+  return {
+    compare: compareVersionGroups(changelog, groupA, groupB),
+    changelog,
+    groupA,
+    groupB
+  };
 }
 
 export function formatCompareForLlm(compare: VersionCompareResult): string {
