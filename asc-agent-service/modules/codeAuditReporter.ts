@@ -6,6 +6,10 @@
 
 import { generateText } from './llmClient';
 import { ProductCodeSnapshot } from './codeAuditScanner';
+import {
+  ProductVersionReleaseAnalysis,
+  formatReleaseAnalysisForLlm
+} from './auditVersionAnalysis';
 
 const SYSTEM_PROMPT = `You are the ASC Agent code auditor for ASC Creative Ltd. You review actual source files from GitHub repositories and produce actionable engineering reports.
 
@@ -45,14 +49,16 @@ Top 3-5 fixes ranked by impact.`;
 
 const VERSION_CONTEXT_SECTION = `
 
-When release cycle context is provided, add a section **Release continuity (changelog)** after Executive Summary:
-- Note recent monthly versions (same semantics as MeetingGenius System Version & Changelog).
-- Call out themes from recent features/fixes that relate to code areas in the scan.
-- Flag possible gaps if changelog suggests features in an older cycle with no follow-up fixes in newer cycles (changelog-only; do not invent code regressions).`;
+When version release analysis is provided, add a section ## Release continuity (changelog + code) immediately after Executive Summary:
+- Compare the two monthly versions (A = older cycle, B = newer cycle) using newFeaturesInB and featuresInANotInB.
+- Distinguish changelog-missing (no matching feat in B's month) vs code removed (pathsMissingAtVersionB in featureCodeChecks).
+- If codeStatus is intact for a changelog-missing feat, state the feature code likely remains at B tip.
+- Only flag regressions when paths are missing or scanned files contradict the release notes.
+- Use markdown tables where helpful (Hash | Feature | Code status).`;
 
 export async function generateCodeAuditReport(
   snapshots: ProductCodeSnapshot[],
-  versionContext?: Record<string, unknown>
+  versionReleaseAnalysis?: ProductVersionReleaseAnalysis[]
 ): Promise<string> {
   const payload = snapshots.map(s => ({
     product: s.productName,
@@ -63,14 +69,12 @@ export async function generateCodeAuditReport(
     files: s.files.map(f => ({ path: f.path, language: f.language, excerpt: f.excerpt }))
   }));
 
-  const systemPrompt =
-    versionContext && Object.keys(versionContext).length > 0
-      ? SYSTEM_PROMPT + VERSION_CONTEXT_SECTION
-      : SYSTEM_PROMPT;
+  const hasVersionAnalysis = versionReleaseAnalysis && versionReleaseAnalysis.length > 0;
+  const systemPrompt = hasVersionAnalysis ? SYSTEM_PROMPT + VERSION_CONTEXT_SECTION : SYSTEM_PROMPT;
 
   let userPrompt = `Generate a code audit report. Date: ${new Date().toISOString()}.\n\nScanned code:\n${JSON.stringify(payload, null, 2)}`;
-  if (versionContext && Object.keys(versionContext).length > 0) {
-    userPrompt += `\n\nRecent release cycles (last 2 months, changelog from deploy branch):\n${JSON.stringify(versionContext, null, 2)}`;
+  if (hasVersionAnalysis) {
+    userPrompt += `\n\nVersion release analysis (GitHub path checks at newer cycle tip):\n${formatReleaseAnalysisForLlm(versionReleaseAnalysis!)}`;
   }
 
   return generateText(systemPrompt, userPrompt, 0.3, 4096);

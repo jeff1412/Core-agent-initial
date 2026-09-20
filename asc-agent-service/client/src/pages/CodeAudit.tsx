@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/api';
 import ScheduleSettings from '../components/ScheduleSettings';
+import { renderChatMarkdown } from '../utils/renderChatMarkdown';
 import './CodeAudit.css';
 import '../components/ScheduleSettings.css';
+import '../utils/chatMarkdown.css';
 
 interface CodeFileSnapshot {
   path: string;
@@ -23,6 +25,33 @@ interface ProductCodeSnapshot {
   error: string | null;
 }
 
+interface FeatureCodeCheck {
+  hash: string;
+  message: string;
+  filesTouched: string[];
+  pathsMissingAtVersionB: string[];
+  pathsPresentAtVersionB: string[];
+  githubStatus: string;
+}
+
+interface VersionReleaseAnalysis {
+  productId: string;
+  productName: string;
+  compare: {
+    versionA: { version: string; title: string; monthLabel: string };
+    versionB: { version: string; title: string; monthLabel: string };
+    summary: {
+      newFeaturesInB: number;
+      featuresInANotInB: number;
+    };
+    newFeaturesInB: Array<{ hash: string; message: string }>;
+    featuresInANotInB: Array<{ hash: string; message: string }>;
+  };
+  codeContext: {
+    featureCodeChecks: FeatureCodeCheck[];
+  };
+}
+
 interface CodeAuditReport {
   id: string;
   generatedAt: string;
@@ -30,6 +59,7 @@ interface CodeAuditReport {
   products: ProductCodeSnapshot[];
   aiReport: string | null;
   aiError: string | null;
+  versionReleaseAnalysis?: VersionReleaseAnalysis[];
 }
 
 interface HistoryItem {
@@ -46,41 +76,66 @@ function formatDateTime(iso: string): string {
   });
 }
 
-function renderReportMarkdown(text: string) {
-  const lines = text.split('\n');
-  const elements: ReactNode[] = [];
-  let listItems: string[] = [];
-  let listKey = 0;
+function featureCodeStatus(check: FeatureCodeCheck): 'intact' | 'partial' | 'missing' | 'unknown' {
+  if (check.githubStatus !== 'ok') return 'unknown';
+  if (check.filesTouched.length === 0) return 'unknown';
+  if (check.pathsMissingAtVersionB.length === 0) return 'intact';
+  if (check.pathsPresentAtVersionB.length === 0) return 'missing';
+  return 'partial';
+}
 
-  const flushList = () => {
-    if (!listItems.length) return;
-    elements.push(
-      <ul key={`list-${listKey++}`} className="code-audit-md-list">
-        {listItems.map((item, i) => <li key={i}>{item}</li>)}
-      </ul>
-    );
-    listItems = [];
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith('## ')) {
-      flushList();
-      elements.push(<h2 key={i} className="code-audit-md-h2">{line.slice(3)}</h2>);
-    } else if (line.startsWith('### ')) {
-      flushList();
-      elements.push(<h3 key={i} className="code-audit-md-h3">{line.slice(4)}</h3>);
-    } else if (line.trim().startsWith('- ')) {
-      listItems.push(line.trim().slice(2));
-    } else if (line.trim() === '') {
-      flushList();
-    } else {
-      flushList();
-      elements.push(<p key={i} className="code-audit-md-p">{line}</p>);
-    }
-  }
-  flushList();
-  return elements;
+function ReleaseContinuityPanel({ analyses }: { analyses: VersionReleaseAnalysis[] }) {
+  return (
+    <div className="card code-audit-release slide-in">
+      <h3>Release continuity (GitHub checks)</h3>
+      <p className="text-muted text-sm">
+        Last two monthly cycles on deploy branch — same logic as Version Insights chat.
+      </p>
+      {analyses.map(a => {
+        const checkByHash = new Map(
+          a.codeContext.featureCodeChecks.map(c => [c.hash, c])
+        );
+        return (
+          <div key={a.productId} className="code-audit-release-product">
+            <h4>
+              {a.productName}: {a.compare.versionA.version} → {a.compare.versionB.version}
+            </h4>
+            <p className="text-muted text-sm">
+              {a.compare.summary.newFeaturesInB} new feat(s) in {a.compare.versionB.version};{' '}
+              {a.compare.summary.featuresInANotInB} changelog-only from {a.compare.versionA.version}
+            </p>
+            <div className="code-audit-release-grid">
+              <div>
+                <h5>New in {a.compare.versionB.version}</h5>
+                <ul className="code-audit-release-list">
+                  {a.compare.newFeaturesInB.slice(0, 8).map(f => (
+                    <li key={f.hash}><span className="mono">{f.hash}</span> {f.message}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h5>In {a.compare.versionA.version}, not in {a.compare.versionB.version} changelog</h5>
+                <ul className="code-audit-release-list">
+                  {a.compare.featuresInANotInB.slice(0, 8).map(f => {
+                    const check = checkByHash.get(f.hash);
+                    const status = check ? featureCodeStatus(check) : 'unknown';
+                    return (
+                      <li key={f.hash}>
+                        <span className={`code-audit-code-status code-audit-code-status--${status}`}>
+                          {status}
+                        </span>
+                        <span className="mono">{f.hash}</span> {f.message}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function ReportDetail({ report }: { report: CodeAuditReport }) {
@@ -120,13 +175,17 @@ function ReportDetail({ report }: { report: CodeAuditReport }) {
         ))}
       </div>
 
+      {report.versionReleaseAnalysis && report.versionReleaseAnalysis.length > 0 && (
+        <ReleaseContinuityPanel analyses={report.versionReleaseAnalysis} />
+      )}
+
       {report.aiReport && (
         <div className="card code-audit-report slide-in">
           <div className="code-audit-report-header">
             <h3>AI Code Review</h3>
             {report.aiError && <span className="badge badge-yellow">Fallback / partial</span>}
           </div>
-          <div className="code-audit-report-body">{renderReportMarkdown(report.aiReport)}</div>
+          <div className="code-audit-report-body chat-md">{renderChatMarkdown(report.aiReport)}</div>
         </div>
       )}
     </>

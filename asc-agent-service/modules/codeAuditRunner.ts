@@ -10,7 +10,8 @@ import { fileURLToPath } from 'url';
 import { scanAllProductCode } from './codeAuditScanner';
 import { generateCodeAuditReport, fallbackCodeAuditReport } from './codeAuditReporter';
 import { saveCodeAuditReport, CodeAuditReport } from './codeAuditStore';
-import { buildAuditVersionContext, OnboardedProduct } from './productVersionService';
+import { OnboardedProduct } from './productVersionService';
+import { buildProductVersionReleaseAnalysis } from './auditVersionAnalysis';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,7 +33,7 @@ export async function runCodeAudit(trigger: 'manual' | 'scheduled' = 'manual'): 
   try {
     const products = loadProducts();
     const snapshots = await scanAllProductCode(products);
-    const versionContext = await buildAuditVersionContext(products, 2);
+    const versionReleaseAnalysis = await buildProductVersionReleaseAnalysis(products, 2);
 
     let aiReport: string | null = null;
     let aiError: string | null = null;
@@ -43,7 +44,7 @@ export async function runCodeAudit(trigger: 'manual' | 'scheduled' = 'manual'): 
       aiError = 'No source files could be scanned';
     } else {
       try {
-        aiReport = await generateCodeAuditReport(snapshots, versionContext);
+        aiReport = await generateCodeAuditReport(snapshots, versionReleaseAnalysis);
       } catch (e: any) {
         aiError = e.message;
         aiReport = fallbackCodeAuditReport(snapshots);
@@ -57,7 +58,8 @@ export async function runCodeAudit(trigger: 'manual' | 'scheduled' = 'manual'): 
       trigger,
       products: snapshots,
       aiReport,
-      aiError
+      aiError,
+      versionReleaseAnalysis: versionReleaseAnalysis.length > 0 ? versionReleaseAnalysis : undefined
     };
 
     saveCodeAuditReport(report);

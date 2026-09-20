@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ProductCodeSnapshot } from './codeAuditScanner';
+import { ProductVersionReleaseAnalysis } from './auditVersionAnalysis';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,7 @@ export interface CodeAuditReport {
   products: ProductCodeSnapshot[];
   aiReport: string | null;
   aiError: string | null;
+  versionReleaseAnalysis?: ProductVersionReleaseAnalysis[];
 }
 
 interface CodeAuditStore {
