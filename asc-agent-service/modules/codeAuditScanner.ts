@@ -6,6 +6,7 @@
 
 import { Octokit } from '@octokit/rest';
 import { getGithubToken } from './githubTokenStore';
+import { CodeAuditActivityHandler } from './codeAuditProgress';
 
 export interface CodeFileSnapshot {
   path: string;
@@ -118,12 +119,15 @@ async function discoverPaths(
   return [...paths];
 }
 
-export async function scanProductCode(product: {
-  id: string;
-  name: string;
-  owner?: string;
-  repo: string;
-}): Promise<ProductCodeSnapshot> {
+export async function scanProductCode(
+  product: {
+    id: string;
+    name: string;
+    owner?: string;
+    repo: string;
+  },
+  onActivity?: CodeAuditActivityHandler
+): Promise<ProductCodeSnapshot> {
   const owner = product.owner || process.env.GITHUB_ORG || '';
   const token = getGithubToken();
   const empty: ProductCodeSnapshot = {
@@ -155,6 +159,11 @@ export async function scanProductCode(product: {
     empty.defaultBranch = defaultBranch;
     empty.reachable = true;
 
+    onActivity?.({
+      kind: 'step',
+      message: `Discovering source files in ${product.owner || owner}/${product.repo} (${defaultBranch})…`
+    });
+
     const candidates = await discoverPaths(octokit, owner, product.repo, defaultBranch);
     const ordered = [
       ...PRIORITY_PATHS.filter(p => candidates.includes(p)),
@@ -164,8 +173,10 @@ export async function scanProductCode(product: {
     let totalChars = 0;
     for (const filePath of ordered) {
       if (totalChars >= MAX_TOTAL_CHARS) break;
+      onActivity?.({ kind: 'file', message: filePath, path: filePath, status: 'checking' });
       const content = await fetchFileContent(octokit, owner, product.repo, filePath, defaultBranch);
       if (!content) continue;
+      onActivity?.({ kind: 'file', message: filePath, path: filePath, status: 'present' });
       const budget = Math.min(MAX_FILE_CHARS, MAX_TOTAL_CHARS - totalChars);
       const excerpt = truncate(content, budget);
       totalChars += excerpt.length;
@@ -188,11 +199,19 @@ export async function scanProductCode(product: {
   return empty;
 }
 
-export async function scanAllProductCode(products: Array<{
-  id: string;
-  name: string;
-  owner?: string;
-  repo: string;
-}>): Promise<ProductCodeSnapshot[]> {
-  return Promise.all(products.map(scanProductCode));
+export async function scanAllProductCode(
+  products: Array<{
+    id: string;
+    name: string;
+    owner?: string;
+    repo: string;
+  }>,
+  onActivity?: CodeAuditActivityHandler
+): Promise<ProductCodeSnapshot[]> {
+  const snapshots: ProductCodeSnapshot[] = [];
+  for (const product of products) {
+    onActivity?.({ kind: 'step', message: `Scanning product: ${product.name}` });
+    snapshots.push(await scanProductCode(product, onActivity));
+  }
+  return snapshots;
 }

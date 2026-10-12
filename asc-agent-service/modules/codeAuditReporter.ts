@@ -4,7 +4,7 @@
  * modules/codeAuditReporter.ts — AI code quality review from scanned file snapshots
  */
 
-import { generateText } from './llmClient';
+import { generateText, chatWithLlmStream, LlmStreamEvent } from './llmClient';
 import { ProductCodeSnapshot } from './codeAuditScanner';
 import {
   ProductVersionReleaseAnalysis,
@@ -56,10 +56,10 @@ When version release analysis is provided, add a section ## Release continuity (
 - Only flag regressions when paths are missing or scanned files contradict the release notes.
 - Use markdown tables where helpful (Hash | Feature | Code status).`;
 
-export async function generateCodeAuditReport(
+function buildCodeAuditPrompts(
   snapshots: ProductCodeSnapshot[],
   versionReleaseAnalysis?: ProductVersionReleaseAnalysis[]
-): Promise<string> {
+): { systemPrompt: string; userPrompt: string } {
   const payload = snapshots.map(s => ({
     product: s.productName,
     repo: `${s.owner}/${s.repo}`,
@@ -77,7 +77,23 @@ export async function generateCodeAuditReport(
     userPrompt += `\n\nVersion release analysis (GitHub path checks at newer cycle tip):\n${formatReleaseAnalysisForLlm(versionReleaseAnalysis!)}`;
   }
 
+  return { systemPrompt, userPrompt };
+}
+
+export async function generateCodeAuditReport(
+  snapshots: ProductCodeSnapshot[],
+  versionReleaseAnalysis?: ProductVersionReleaseAnalysis[]
+): Promise<string> {
+  const { systemPrompt, userPrompt } = buildCodeAuditPrompts(snapshots, versionReleaseAnalysis);
   return generateText(systemPrompt, userPrompt, 0.3, 4096);
+}
+
+export async function* streamCodeAuditReport(
+  snapshots: ProductCodeSnapshot[],
+  versionReleaseAnalysis?: ProductVersionReleaseAnalysis[]
+): AsyncGenerator<LlmStreamEvent> {
+  const { systemPrompt, userPrompt } = buildCodeAuditPrompts(snapshots, versionReleaseAnalysis);
+  yield* chatWithLlmStream(systemPrompt, [], userPrompt);
 }
 
 export function fallbackCodeAuditReport(snapshots: ProductCodeSnapshot[]): string {

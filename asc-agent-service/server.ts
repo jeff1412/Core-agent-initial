@@ -551,6 +551,28 @@ async function startServer() {
     }
   });
 
+  app.post('/api/code-audit/run/stream', async (req: Request, res: Response) => {
+    if (isCodeAuditRunning()) {
+      return res.status(409).json({ error: 'A code audit is already in progress.' });
+    }
+    const send = initSse(res);
+    try {
+      const report = await runCodeAudit('manual', {
+        onActivity: ev => send('activity', ev),
+        onLlmStream: ev => {
+          if (ev.type === 'status') send('activity', { kind: 'status', message: ev.message });
+          if (ev.type === 'thinking') send('thinking', { delta: ev.delta });
+          if (ev.type === 'text') send('text', { delta: ev.delta });
+        }
+      });
+      send('done', { report, model: getActiveLlmLabel() });
+    } catch (e: any) {
+      console.error('[Code Audit Stream API] Error:', e.message);
+      send('error', { message: e.message });
+    }
+    endSse(res);
+  });
+
   // Task Intake API (Web Form)
   app.post('/api/intake', async (req: Request, res: Response) => {
     const { product, description, type, taskType, priority, acceptanceCriteria, doNotTouch, referenceFiles } = req.body;

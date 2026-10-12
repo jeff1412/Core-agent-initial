@@ -9,7 +9,7 @@ export interface ChatStreamHandlers {
   onActivity?: (item: StreamActivity) => void;
   onThinking?: (delta: string, full: string) => void;
   onText?: (delta: string, full: string) => void;
-  onDone?: (payload: { model?: string }) => void;
+  onDone?: (payload: { model?: string; report?: unknown }) => void;
   onError?: (message: string) => void;
 }
 
@@ -77,7 +77,7 @@ export async function consumeChatStream(
         fullText += delta;
         handlers.onText?.(delta, fullText);
       } else if (parsed.event === 'done') {
-        handlers.onDone?.(payload as { model?: string });
+        handlers.onDone?.(payload as { model?: string; report?: unknown });
       } else if (parsed.event === 'error') {
         const message = String(payload.message || 'Stream error');
         handlers.onError?.(message);

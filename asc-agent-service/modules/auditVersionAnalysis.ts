@@ -6,7 +6,8 @@
 
 import { getProductChangelog, OnboardedProduct } from './productVersionService';
 import { compareVersionGroups, VersionCompareResult } from './versionCompare';
-import { buildVersionCodeContext, VersionCodeContext } from './versionCodeContext';
+import { buildVersionCodeContext, VersionCodeContext, VersionProgressEvent } from './versionCodeContext';
+import { CodeAuditActivityHandler } from './codeAuditProgress';
 
 export interface ProductVersionReleaseAnalysis {
   productId: string;
@@ -25,22 +26,38 @@ export function codeCheckStatus(
   return 'partial';
 }
 
+function forwardVersionProgress(onActivity?: CodeAuditActivityHandler): ((ev: VersionProgressEvent) => void) | undefined {
+  if (!onActivity) return undefined;
+  return ev => onActivity(ev);
+}
+
 export async function buildProductVersionReleaseAnalysis(
   products: OnboardedProduct[],
-  cycles = 2
+  cycles = 2,
+  onActivity?: CodeAuditActivityHandler
 ): Promise<ProductVersionReleaseAnalysis[]> {
   const results: ProductVersionReleaseAnalysis[] = [];
 
   for (const product of products) {
     if (!product.versionChangelog?.enabled) continue;
     try {
+      onActivity?.({
+        kind: 'step',
+        message: `Release continuity: ${product.name} (last ${cycles} monthly cycles)…`
+      });
       const changelog = await getProductChangelog(product.id);
       if (changelog.versions.length < Math.min(2, cycles)) continue;
 
       const groupB = changelog.versions[0];
       const groupA = changelog.versions[1];
       const compare = compareVersionGroups(changelog, groupA, groupB);
-      const codeContext = await buildVersionCodeContext(changelog, compare, groupA, groupB);
+      const codeContext = await buildVersionCodeContext(
+        changelog,
+        compare,
+        groupA,
+        groupB,
+        forwardVersionProgress(onActivity)
+      );
 
       results.push({
         productId: product.id,

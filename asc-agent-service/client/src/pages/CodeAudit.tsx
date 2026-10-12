@@ -1,7 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../utils/api';
 import ScheduleSettings from '../components/ScheduleSettings';
 import { renderChatMarkdown } from '../utils/renderChatMarkdown';
+import { consumeChatStream } from '../utils/chatStream';
+import { upsertStreamActivity } from '../utils/streamActivity';
+import AgentActivityPanel, { type ActivityLine } from '../components/AgentActivityPanel';
+import '../components/AgentActivityPanel.css';
 import './CodeAudit.css';
 import '../components/ScheduleSettings.css';
 import '../utils/chatMarkdown.css';
@@ -199,8 +203,9 @@ export default function CodeAudit() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [activities, setActivities] = useState<ActivityLine[]>([]);
+  const [liveThinking, setLiveThinking] = useState('');
+  const [streamingText, setStreamingText] = useState('');
 
   const fetchHistory = useCallback(() => {
     return apiFetch('/api/code-audit/history')
@@ -221,33 +226,38 @@ export default function CodeAudit() {
     }).finally(() => setLoading(false));
   }, [fetchHistory]);
 
-  useEffect(() => {
-    if (!running) {
-      if (progressTimer.current) clearInterval(progressTimer.current);
-      return;
-    }
-    setProgress(0);
-    progressTimer.current = setInterval(() => {
-      setProgress(p => Math.min(p + 4, 90));
-    }, 500);
-    return () => { if (progressTimer.current) clearInterval(progressTimer.current); };
-  }, [running]);
-
   const handleRun = async () => {
     setRunning(true);
     setError(null);
+    setActivities([]);
+    setLiveThinking('');
+    setStreamingText('');
+
     try {
-      const res = await apiFetch('/api/code-audit/run', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Code audit failed');
-      setProgress(100);
-      setReport(data);
-      setSelectedId(data.id);
+      const res = await apiFetch('/api/code-audit/run/stream', { method: 'POST' });
+      let savedReport: CodeAuditReport | null = null;
+
+      await consumeChatStream(res, {
+        onActivity: item => setActivities(prev => upsertStreamActivity(prev, item)),
+        onThinking: (_d, full) => setLiveThinking(full),
+        onText: (_d, full) => setStreamingText(full),
+        onDone: payload => {
+          if (payload.report) savedReport = payload.report as CodeAuditReport;
+        }
+      });
+
+      if (savedReport) {
+        setReport(savedReport);
+        setSelectedId(savedReport.id);
+      }
       await fetchHistory();
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setTimeout(() => setRunning(false), 500);
+      setActivities([]);
+      setLiveThinking('');
+      setStreamingText('');
+      setRunning(false);
     }
   };
 
@@ -289,10 +299,12 @@ export default function CodeAudit() {
       />
 
       {running && (
-        <div className="card code-audit-loading">
-          <p>Scanning repositories and analyzing code... {Math.round(progress)}%</p>
-          <div className="code-audit-progress"><div style={{ width: `${progress}%` }} /></div>
-        </div>
+        <AgentActivityPanel
+          active={running}
+          activities={activities}
+          thinking={liveThinking}
+          streamingText={streamingText}
+        />
       )}
 
       <div className="code-audit-layout">
