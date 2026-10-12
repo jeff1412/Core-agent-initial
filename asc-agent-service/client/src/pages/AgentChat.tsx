@@ -4,6 +4,10 @@ import { apiFetch } from '../utils/api';
 import './AgentChat.css';
 import '../utils/chatMarkdown.css';
 import { renderChatMarkdown } from '../utils/renderChatMarkdown';
+import { consumeChatStream } from '../utils/chatStream';
+import { upsertStreamActivity } from '../utils/streamActivity';
+import AgentActivityPanel, { type ActivityLine } from '../components/AgentActivityPanel';
+import '../components/AgentActivityPanel.css';
 
 interface Message {
   role: 'user' | 'agent' | 'error';
@@ -33,6 +37,9 @@ export default function AgentChat() {
   });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [activities, setActivities] = useState<ActivityLine[]>([]);
+  const [liveThinking, setLiveThinking] = useState('');
+  const [streamingText, setStreamingText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,7 +47,7 @@ export default function AgentChat() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, activities, streamingText, liveThinking]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -49,6 +56,9 @@ export default function AgentChat() {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
     setIsLoading(true);
+    setActivities([]);
+    setLiveThinking('');
+    setStreamingText('');
 
     try {
       const history = messages
@@ -59,7 +69,7 @@ export default function AgentChat() {
           text: m.text
         }));
 
-      const response = await apiFetch('/api/chat', {
+      const response = await apiFetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -69,17 +79,21 @@ export default function AgentChat() {
         })
       });
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to get response from AI');
-      }
+      const text = await consumeChatStream(response, {
+        onActivity: item => setActivities(prev => upsertStreamActivity(prev, item)),
+        onThinking: (_d, full) => setLiveThinking(full),
+        onText: (_d, full) => setStreamingText(full)
+      });
 
-      setMessages(prev => [...prev, { role: 'agent', text: data.text }]);
+      setMessages(prev => [...prev, { role: 'agent', text }]);
     } catch (err: any) {
       console.error('Chat error:', err);
       setMessages(prev => [...prev, { role: 'error', text: `Error: ${err.message}` }]);
     } finally {
       setIsLoading(false);
+      setActivities([]);
+      setLiveThinking('');
+      setStreamingText('');
     }
   };
 
@@ -108,7 +122,12 @@ export default function AgentChat() {
           </div>
         ))}
         {isLoading && (
-          <div className="typing-indicator">ASC Agent is analyzing and responding...</div>
+          <AgentActivityPanel
+            active={isLoading}
+            activities={activities}
+            thinking={liveThinking}
+            streamingText={streamingText}
+          />
         )}
       </div>
 

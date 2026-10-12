@@ -26,6 +26,13 @@ export interface FeatureCodeCheck {
   detail?: string;
 }
 
+export interface VersionProgressEvent {
+  kind: 'step' | 'commit' | 'file';
+  message: string;
+  path?: string;
+  status?: 'checking' | 'present' | 'missing';
+}
+
 export interface VersionCodeContext {
   versionBRefSha: string;
   versionBLabel: string;
@@ -77,7 +84,8 @@ export async function buildVersionCodeContext(
   changelog: ProductChangelogPayload,
   compare: VersionCompareResult,
   groupA: MonthlyVersionGroup,
-  groupB: MonthlyVersionGroup
+  groupB: MonthlyVersionGroup,
+  onProgress?: (ev: VersionProgressEvent) => void
 ): Promise<VersionCodeContext> {
   const token = getGithubToken();
   const owner = changelog.owner;
@@ -108,6 +116,10 @@ export async function buildVersionCodeContext(
   let compareRange: VersionCodeContext['compareRange'] = null;
 
   if (shaEndA && shaEndB) {
+    onProgress?.({
+      kind: 'step',
+      message: `GitHub compare ${shaEndA.slice(0, 7)}…${shaEndB.slice(0, 7)} on ${changelog.deployBranch}`
+    });
     try {
       const { data } = await octokit.repos.compareCommits({
         owner,
@@ -121,6 +133,10 @@ export async function buildVersionCodeContext(
         filesChanged: data.files?.length ?? 0,
         commitsBetween: data.total_commits ?? 0
       };
+      onProgress?.({
+        kind: 'step',
+        message: `Compare: ${compareRange.commitsBetween} commit(s), ${compareRange.filesChanged} file(s) changed`
+      });
     } catch {
       compareRange = null;
     }
@@ -129,9 +145,18 @@ export async function buildVersionCodeContext(
   const featureCodeChecks: FeatureCodeCheck[] = [];
   const feats = compare.featuresInANotInB.slice(0, MAX_FEATURES_TO_CHECK);
 
+  if (feats.length > 0) {
+    onProgress?.({
+      kind: 'step',
+      message: `Checking ${feats.length} feature commit(s) from older version at ${shaEndB.slice(0, 7)} tip…`
+    });
+  }
+
   for (const feat of feats) {
     const commitMeta = findCommitInGroup(groupA, feat.hash);
     const sha = commitMeta?.fullHash || feat.hash;
+
+    onProgress?.({ kind: 'commit', message: `${feat.hash} — ${feat.message}` });
 
     try {
       const { data: commitDetail } = await octokit.repos.getCommit({ owner, repo, ref: sha });
@@ -144,9 +169,15 @@ export async function buildVersionCodeContext(
       const pathsMissingAtVersionB: string[] = [];
 
       for (const filePath of filesTouched) {
+        onProgress?.({ kind: 'file', message: filePath, path: filePath, status: 'checking' });
         const exists = await pathExistsAtRef(octokit, owner, repo, filePath, shaEndB);
-        if (exists) pathsPresentAtVersionB.push(filePath);
-        else pathsMissingAtVersionB.push(filePath);
+        if (exists) {
+          pathsPresentAtVersionB.push(filePath);
+          onProgress?.({ kind: 'file', message: filePath, path: filePath, status: 'present' });
+        } else {
+          pathsMissingAtVersionB.push(filePath);
+          onProgress?.({ kind: 'file', message: filePath, path: filePath, status: 'missing' });
+        }
       }
 
       featureCodeChecks.push({

@@ -370,3 +370,187 @@ export function getActiveLlmLabel(): string {
   };
   return `${names[provider]} · ${model}`;
 }
+
+export type LlmStreamEvent =
+  | { type: 'status'; message: string }
+  | { type: 'thinking'; delta: string }
+  | { type: 'text'; delta: string };
+
+async function* streamOpenAIChat(
+  apiKey: string, model: string, systemPrompt: string,
+  messages: ChatMessage[], userMessage: string, maxOutputTokens: number
+): AsyncGenerator<LlmStreamEvent> {
+  const chatMessages = [
+    { role: 'system', content: systemPrompt },
+    ...messages.map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.text
+    })),
+    { role: 'user', content: userMessage }
+  ];
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({ model, messages: chatMessages, max_tokens: maxOutputTokens, stream: true })
+  });
+  if (!response.ok) {
+    throw new Error(`OpenAI API error ${response.status}: ${await response.text()}`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('OpenAI stream unavailable');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (payload === '[DONE]') continue;
+      try {
+        const json = JSON.parse(payload);
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) yield { type: 'text', delta };
+      } catch {
+        /* skip partial JSON */
+      }
+    }
+  }
+}
+
+async function* streamGeminiChatOnce(
+  apiKey: string, model: string, systemPrompt: string,
+  messages: ChatMessage[], userMessage: string, temperature: number, maxOutputTokens: number
+): AsyncGenerator<LlmStreamEvent> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const contents = [
+    ...messages.map(m => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.text }]
+    })),
+    { role: 'user', parts: [{ text: userMessage }] }
+  ];
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents,
+      generationConfig: { temperature, maxOutputTokens }
+    })
+  });
+  if (!response.ok) {
+    throw new Error(formatGeminiError(response.status, await response.text()));
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('Gemini stream unavailable');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      try {
+        const json = JSON.parse(payload);
+        const parts = json.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          if (part.text) yield { type: 'text', delta: part.text };
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+}
+
+async function* streamGeminiChat(
+  apiKey: string, model: string, systemPrompt: string,
+  messages: ChatMessage[], userMessage: string, temperature: number, maxOutputTokens: number
+): AsyncGenerator<LlmStreamEvent> {
+  let lastError: Error | null = null;
+  for (const candidate of geminiModelsToTry(model)) {
+    try {
+      yield* streamGeminiChatOnce(apiKey, candidate, systemPrompt, messages, userMessage, temperature, maxOutputTokens);
+      return;
+    } catch (e: any) {
+      lastError = e;
+      const retryable = e.status === 404 || e.status === 429;
+      if (!retryable) throw e;
+    }
+  }
+  throw lastError || new Error('Gemini stream failed');
+}
+
+async function* streamAnthropicChatOnce(
+  apiKey: string, model: string, systemPrompt: string,
+  messages: ChatMessage[], userMessage: string, maxOutputTokens: number
+): AsyncGenerator<LlmStreamEvent> {
+  const client = new Anthropic({ apiKey });
+  const stream = client.messages.stream({
+    model,
+    max_tokens: maxOutputTokens,
+    system: systemPrompt,
+    messages: buildAnthropicMessages(messages, userMessage)
+  });
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta') {
+      const delta = event.delta as { type: string; text?: string; thinking?: string };
+      if (delta.type === 'text_delta' && delta.text) {
+        yield { type: 'text', delta: delta.text };
+      }
+      if (delta.type === 'thinking_delta' && (delta as { thinking?: string }).thinking) {
+        yield { type: 'thinking', delta: (delta as { thinking: string }).thinking };
+      }
+    }
+  }
+}
+
+async function* streamAnthropicChat(
+  apiKey: string, model: string, systemPrompt: string,
+  messages: ChatMessage[], userMessage: string, maxOutputTokens: number
+): AsyncGenerator<LlmStreamEvent> {
+  let lastError: Error | null = null;
+  for (const candidate of anthropicModelsToTry(model)) {
+    try {
+      yield* streamAnthropicChatOnce(apiKey, candidate, systemPrompt, messages, userMessage, maxOutputTokens);
+      return;
+    } catch (e: any) {
+      const formatted = formatAnthropicError(e);
+      lastError = formatted;
+      if (!formatted.retryable) throw formatted;
+    }
+  }
+  throw lastError || new Error('Claude stream failed');
+}
+
+export async function* chatWithLlmStream(
+  systemPrompt: string, messages: ChatMessage[], userMessage: string
+): AsyncGenerator<LlmStreamEvent> {
+  const { provider, apiKey, model } = getActiveLlmConfig();
+  ensureConfigured(provider, apiKey);
+  yield { type: 'status', message: `Calling ${getActiveLlmLabel()}…` };
+
+  if (provider === 'gemini') {
+    yield* streamGeminiChat(apiKey, model, systemPrompt, messages, userMessage, 0.7, 2048);
+    return;
+  }
+  if (provider === 'openai') {
+    yield* streamOpenAIChat(apiKey, model, systemPrompt, messages, userMessage, 2048);
+    return;
+  }
+  yield* streamAnthropicChat(apiKey, model, systemPrompt, messages, userMessage, 8192);
+}

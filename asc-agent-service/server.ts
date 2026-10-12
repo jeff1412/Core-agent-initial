@@ -22,7 +22,10 @@ import { getPullRequests, PullRequestSummary } from './modules/githubWriter';
 import { checkHealth } from './modules/healthChecker';
 import { getEscalations, clearEscalation } from './modules/escalationManager';
 import { runPipeline, PipelinePayload } from './modules/agentEngine';
-import { chatWithLlm, ChatMessage, getActiveLlmLabel } from './modules/llmClient';
+import { chatWithLlm, chatWithLlmStream, ChatMessage, getActiveLlmLabel } from './modules/llmClient';
+import { initSse, endSse } from './modules/sseWriter';
+import { buildVersionChatPrompt } from './modules/versionChatService';
+import { VersionProgressEvent } from './modules/versionCodeContext';
 import { runHeartbeat, isHeartbeatRunning } from './modules/heartbeatRunner';
 import { getLatestReport, getReportHistory, getReportById } from './modules/heartbeatStore';
 import { getGithubTokenStatusAsync, saveGithubToken, clearGithubToken } from './modules/githubTokenStore';
@@ -39,8 +42,7 @@ import {
   getVersionCapableProducts,
   getProductChangelog
 } from './modules/productVersionService';
-import { compareProductVersions, compareProductVersionsFull, formatCompareForLlm } from './modules/versionCompare';
-import { buildVersionCodeContext, formatCodeContextForLlm } from './modules/versionCodeContext';
+import { compareProductVersions } from './modules/versionCompare';
 
 async function startServer() {
   const app = express();
@@ -327,6 +329,32 @@ async function startServer() {
     }
   });
 
+  app.post('/api/chat/stream', async (req: Request, res: Response) => {
+    const send = initSse(res);
+    try {
+      const { messages, userMessage, systemPrompt } = req.body;
+      if (!userMessage || typeof userMessage !== 'string') {
+        send('error', { message: 'userMessage is required' });
+        return endSse(res);
+      }
+      const history: ChatMessage[] = Array.isArray(messages) ? messages : [];
+      const prompt = systemPrompt || 'You are the ASC Agent, a helpful software development assistant.';
+
+      send('activity', { kind: 'status', message: 'Preparing request…' });
+
+      for await (const ev of chatWithLlmStream(prompt, history, userMessage)) {
+        if (ev.type === 'status') send('activity', { kind: 'status', message: ev.message });
+        if (ev.type === 'thinking') send('thinking', { delta: ev.delta });
+        if (ev.type === 'text') send('text', { delta: ev.delta });
+      }
+      send('done', { model: getActiveLlmLabel() });
+    } catch (e: any) {
+      console.error('[Chat Stream API] Error:', e.message);
+      send('error', { message: e.message });
+    }
+    endSse(res);
+  });
+
   // Heartbeat API (repo health reports)
   app.get('/api/heartbeat/latest', (req: Request, res: Response) => {
     const latest = getLatestReport();
@@ -428,47 +456,60 @@ async function startServer() {
       }
 
       const productId = req.params.productId as string;
-      const { compare, changelog, groupA, groupB } = await compareProductVersionsFull(
+      const built = await buildVersionChatPrompt({
         productId,
-        { version: versionA, monthKey: monthKeyA },
-        { version: versionB, monthKey: monthKeyB }
-      );
+        messages: Array.isArray(messages) ? messages : [],
+        userMessage,
+        versionA,
+        versionB,
+        monthKeyA,
+        monthKeyB
+      });
 
-      const codeContext = await buildVersionCodeContext(changelog, compare, groupA, groupB);
-
-      const systemPrompt = `You are the ASC Agent version analyst for ASC Creative Ltd.
-You answer questions about monthly product releases using the changelog comparison AND GitHub code evidence below.
-Rules:
-- Distinguish two meanings of "missing":
-  1) Changelog missing: feat commit in Version A's month with no matching subject/scope in Version B's month (featuresInANotInB).
-  2) Code missing: paths from that feat commit are absent at Version B tip (pathsMissingAtVersionB in featureCodeChecks).
-- When the user asks about "code" or exact features removed from the product, use featureCodeChecks first.
-- If all paths for a feat are still present at Version B tip, say the feature code likely remains even though B had no new commit for it.
-- Only list a feature as "removed from codebase" when pathsMissingAtVersionB covers the meaningful files or compare evidence supports removal.
-- When asked what's new, use newFeaturesInB.
-- Be clear which version labels you mean (${compare.versionA.version} vs ${compare.versionB.version}).
-- Professional, concise markdown; cite commit hashes and file paths when discussing code.`;
-
-      const contextBlock = formatCompareForLlm(compare);
-      const codeBlock = formatCodeContextForLlm(codeContext);
-      const versionSummaries = changelog.versions
-        .filter(v => v.monthKey === compare.versionA.monthKey || v.monthKey === compare.versionB.monthKey)
-        .map(v => ({
-          version: v.version,
-          title: v.title,
-          description: v.description,
-          stats: v.stats
-        }));
-
-      const augmentedPrompt = `${systemPrompt}\n\n---\nVersion metadata:\n${JSON.stringify(versionSummaries, null, 2)}\n\n---\n${contextBlock}\n\n---\n${codeBlock}`;
-
-      const history: ChatMessage[] = Array.isArray(messages) ? messages : [];
-      const text = await chatWithLlm(augmentedPrompt, history, userMessage);
-      res.json({ text, model: getActiveLlmLabel(), compareSummary: compare.summary });
+      const text = await chatWithLlm(built.systemPrompt, built.history, built.userMessage);
+      res.json({ text, model: getActiveLlmLabel() });
     } catch (e: any) {
       console.error('[Version Chat API] Error:', e.message);
       res.status(500).json({ error: e.message });
     }
+  });
+
+  app.post('/api/product-versions/:productId/chat/stream', async (req: Request, res: Response) => {
+    const send = initSse(res);
+    const emitProgress = (ev: VersionProgressEvent) => send('activity', ev);
+
+    try {
+      const { messages, userMessage, versionA, versionB, monthKeyA, monthKeyB } = req.body || {};
+      if (!userMessage || typeof userMessage !== 'string') {
+        send('error', { message: 'userMessage is required' });
+        return endSse(res);
+      }
+
+      const productId = req.params.productId as string;
+      const built = await buildVersionChatPrompt(
+        {
+          productId,
+          messages: Array.isArray(messages) ? messages : [],
+          userMessage,
+          versionA,
+          versionB,
+          monthKeyA,
+          monthKeyB
+        },
+        emitProgress
+      );
+
+      for await (const ev of chatWithLlmStream(built.systemPrompt, built.history, built.userMessage)) {
+        if (ev.type === 'status') send('activity', { kind: 'status', message: ev.message });
+        if (ev.type === 'thinking') send('thinking', { delta: ev.delta });
+        if (ev.type === 'text') send('text', { delta: ev.delta });
+      }
+      send('done', { model: getActiveLlmLabel() });
+    } catch (e: any) {
+      console.error('[Version Chat Stream API] Error:', e.message);
+      send('error', { message: e.message });
+    }
+    endSse(res);
   });
 
   // Code Audit API

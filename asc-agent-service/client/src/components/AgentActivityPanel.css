@@ -1,0 +1,123 @@
+.agent-activity-panel {
+  align-self: stretch;
+  max-width: 100%;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  font-size: 12.5px;
+}
+
+.agent-activity-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.status-dot.pulse {
+  animation: activity-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes activity-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.agent-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.agent-activity-item {
+  display: flex;
+  gap: var(--space-2);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  line-height: 1.45;
+}
+
+.agent-activity-item:last-child {
+  border-bottom: none;
+}
+
+.agent-activity-kind {
+  color: var(--text-muted);
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.agent-activity-text code {
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.agent-activity-file-status {
+  margin-left: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.agent-activity-file-status--present {
+  color: #22c55e;
+}
+
+.agent-activity-file-status--missing {
+  color: #ef4444;
+}
+
+.agent-activity-thinking {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-2);
+}
+
+.agent-activity-thinking summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.agent-activity-thinking pre {
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--bg-surface);
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  color: var(--text-muted);
+}
+
+.agent-activity-stream {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-2);
+}
+
+.agent-activity-stream-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.agent-activity-stream-preview {
+  margin-top: var(--space-2);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}

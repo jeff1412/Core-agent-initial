@@ -5,6 +5,10 @@ import './VersionInsights.css';
 import './AgentChat.css';
 import '../utils/chatMarkdown.css';
 import { renderChatMarkdown } from '../utils/renderChatMarkdown';
+import { consumeChatStream } from '../utils/chatStream';
+import { upsertStreamActivity } from '../utils/streamActivity';
+import AgentActivityPanel, { type ActivityLine } from '../components/AgentActivityPanel';
+import '../components/AgentActivityPanel.css';
 
 interface ProductOption {
   id: string;
@@ -57,6 +61,9 @@ export default function VersionInsights() {
   ]);
   const [input, setInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [activities, setActivities] = useState<ActivityLine[]>([]);
+  const [liveThinking, setLiveThinking] = useState('');
+  const [streamingText, setStreamingText] = useState('');
 
   const selectedProduct = products.find(p => p.id === productId);
   const productEnabled = selectedProduct?.enabled === true;
@@ -133,6 +140,9 @@ export default function VersionInsights() {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
     setChatLoading(true);
+    setActivities([]);
+    setLiveThinking('');
+    setStreamingText('');
 
     try {
       const history = messages
@@ -140,7 +150,7 @@ export default function VersionInsights() {
         .slice(1)
         .map(m => ({ role: m.role as 'user' | 'agent', text: m.text }));
 
-      const res = await apiFetch(`/api/product-versions/${productId}/chat`, {
+      const res = await apiFetch(`/api/product-versions/${productId}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -150,13 +160,21 @@ export default function VersionInsights() {
           monthKeyB
         })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Chat failed');
-      setMessages(prev => [...prev, { role: 'agent', text: data.text }]);
+
+      const text = await consumeChatStream(res, {
+        onActivity: item => setActivities(prev => upsertStreamActivity(prev, item)),
+        onThinking: (_d, full) => setLiveThinking(full),
+        onText: (_d, full) => setStreamingText(full)
+      });
+
+      setMessages(prev => [...prev, { role: 'agent', text }]);
     } catch (e: any) {
       setMessages(prev => [...prev, { role: 'error', text: e.message }]);
     } finally {
       setChatLoading(false);
+      setActivities([]);
+      setLiveThinking('');
+      setStreamingText('');
     }
   };
 
@@ -298,7 +316,14 @@ export default function VersionInsights() {
                 {m.role === 'user' ? m.text : renderChatMarkdown(m.text)}
               </div>
             ))}
-            {chatLoading && <div className="message agent">Thinking…</div>}
+            {chatLoading && (
+              <AgentActivityPanel
+                active={chatLoading}
+                activities={activities}
+                thinking={liveThinking}
+                streamingText={streamingText}
+              />
+            )}
           </div>
           <div className="chat-input-row">
             <input
